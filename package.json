@@ -1,0 +1,23 @@
+{
+  "name": "opencord",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Open-source, self-hosted chat platform (client + server)",
+  "license": "AGPL-3.0-or-later",
+  "workspaces": [
+    "packages/shared",
+    "packages/server",
+    "packages/client"
+  ],
+  "scripts": {
+    "dev:server": "npm run dev -w @opencord/server",
+    "dev:client": "npm run dev -w @opencord/client",
+    "build:server": "npm run build -w @opencord/server",
+    "build:client": "npm run build -w @opencord/client",
+    "test": "npm test -w @opencord/server",
+    "typecheck": "npm run typecheck --workspaces --if-present",
+    "dist:server": "./scripts/package-server.sh",
+    "dist:server:arm64": "./scripts/package-server-arm64.sh",
+    "dist:client": "npm run dist:linux -w @opencord/client"
+  }
+}

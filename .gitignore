@@ -1,0 +1,11 @@
+node_modules/
+dist/
+out/
+release/
+data/
+config.toml
+*.log
+.DS_Store
+
+.cache/
+android-build/

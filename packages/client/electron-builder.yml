@@ -1,0 +1,42 @@
+appId: org.opencord.client
+productName: OpenCord
+copyright: Copyright © OpenCord contributors
+directories:
+  output: release
+  buildResources: build
+files:
+  - out/**/*
+  - package.json
+extraMetadata:
+  main: out/main/index.js
+asar: true
+afterPack: ./scripts/after-pack.cjs
+extraResources:
+  - from: build/icon.png
+    to: icon.png
+linux:
+  target:
+    - AppImage
+  category: Network
+  icon: build/icon.png
+  executableName: opencord
+  synopsis: Open-source, self-hosted chat
+  desktop:
+    entry:
+      StartupWMClass: OpenCord
+      MimeType: x-scheme-handler/opencord;
+appImage:
+  artifactName: OpenCord-${version}-${arch}.AppImage
+win:
+  target:
+    - nsis
+  icon: build/icon.png
+  artifactName: OpenCord-Setup-${version}.${ext}
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
+protocols:
+  - name: OpenCord
+    schemes: [opencord]
+publish: null

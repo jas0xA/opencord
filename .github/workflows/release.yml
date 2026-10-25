@@ -1,0 +1,51 @@
+name: build
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+
+  linux:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: ./scripts/package-server.sh
+      - run: npm run dist:linux -w @opencord/client
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          path: |
+            release/*.tar.gz
+            packages/client/release/*.AppImage
+
+  windows:
+    needs: test
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with: { node-version: 22, cache: npm }
+      - run: npm ci
+      - run: powershell -ExecutionPolicy Bypass -File scripts\package-server.ps1
+      - run: npm run dist:win -w @opencord/client
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows
+          path: |
+            release/*.zip
+            packages/client/release/*.exe
