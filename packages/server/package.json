@@ -1,9 +1,11 @@
 {
   "name": "@opencord/server",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
-  "bin": { "opencord-server": "dist/opencord-server.mjs" },
+  "bin": {
+    "opencord-server": "dist/opencord-server.mjs"
+  },
   "scripts": {
     "dev": "tsx watch src/main.ts",
     "start": "tsx src/main.ts",

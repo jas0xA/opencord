@@ -1,9 +1,11 @@
 {
   "name": "@opencord/shared",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "private": true,
   "type": "module",
   "main": "src/index.ts",
   "types": "src/index.ts",
-  "scripts": { "typecheck": "tsc -p ." }
+  "scripts": {
+    "typecheck": "tsc -p ."
+  }
 }

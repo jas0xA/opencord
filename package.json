@@ -1,7 +1,7 @@
 {
   "name": "opencord",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Open-source, self-hosted chat platform (client + server)",
   "license": "AGPL-3.0-or-later",
   "workspaces": [
