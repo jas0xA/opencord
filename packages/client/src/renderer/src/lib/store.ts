@@ -113,6 +113,8 @@ export interface AppState {
   settings: null | { kind: 'user'; section: string } | { kind: 'guild'; guildId: string; section: string };
   showProfilePanel: boolean;
   showMemberList: boolean;
+  /** Messages with files being uploaded, by nonce. */
+  uploads: Record<string, { channelId: string; names: string[]; loaded: number; total: number; abort: () => void }>;
   replyingTo: Record<string, Message | null>;
   editing: { channelId: string; messageId: string } | null;
   toast: { text: string; kind: 'error' | 'info' } | null;
@@ -145,6 +147,7 @@ const initial: AppState = {
   settings: null,
   showProfilePanel: true,
   showMemberList: true,
+  uploads: {},
   replyingTo: {},
   editing: null,
   toast: null,
@@ -530,7 +533,17 @@ export async function sendMessage(channelId: string, content: string, files: Fil
       const form = new FormData();
       form.append('payload_json', JSON.stringify(body));
       files.forEach((f, i) => form.append(`files[${i}]`, f, f.name));
-      await api.post(`/channels/${channelId}/messages`, form);
+      const ctl = new AbortController();
+      const total = files.reduce((n, f) => n + f.size, 0);
+      const setUpload = (loaded: number) =>
+        set({ uploads: { ...get().uploads, [nonce]: { channelId, names: files.map((f) => f.name), loaded, total, abort: () => ctl.abort() } } });
+      setUpload(0);
+      try {
+        await api.upload(`/channels/${channelId}/messages`, form, (loaded) => setUpload(Math.min(loaded, total)), ctl.signal);
+      } finally {
+        const { [nonce]: _, ...rest } = get().uploads;
+        set({ uploads: rest });
+      }
     } else {
       await api.post(`/channels/${channelId}/messages`, body);
     }

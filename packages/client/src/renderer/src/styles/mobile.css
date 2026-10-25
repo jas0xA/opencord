@@ -1,0 +1,537 @@
+/* Phone layout (web app on phones, incl. the home-screen app). Loaded last so it wins over the desktop rules. */
+
+/* Phone-only controls, and desktop-only extras hidden on phones. */
+.phone-back,
+.phone-topbar,
+.side-sheet-backdrop {
+  display: none;
+}
+
+/* Touch screens: no hover, so tooltips would only stick after a tap. */
+@media (hover: none) {
+  .tooltip {
+    display: none !important;
+  }
+}
+
+/* ─────────────────────────── phone layout ─────────────────────────── */
+@media (max-width: 760px), (max-height: 500px) and (pointer: coarse) {
+  html,
+  body {
+    /* Stops the page from rubber-banding and pull-to-refresh fighting the app's own scrollers. */
+    overscroll-behavior: none;
+    -webkit-text-size-adjust: 100%;
+    -webkit-tap-highlight-color: transparent;
+  }
+  body {
+    -webkit-touch-callout: none;
+  }
+  /* iOS zooms into any focused field under 16px and never zooms back out. */
+  input,
+  textarea,
+  select,
+  [contenteditable='true'] {
+    font-size: 16px !important;
+  }
+  .app {
+    /* The visible viewport (shrinks above the on-screen keyboard), see lib/web.ts. */
+    height: var(--app-height, 100%);
+    padding-top: env(safe-area-inset-top);
+    padding-left: env(safe-area-inset-left);
+    padding-right: env(safe-area-inset-right);
+  }
+  .hide-phone {
+    display: none !important;
+  }
+
+  /* title bar: menu button on the left, no desktop history arrows */
+  .titlebar {
+    height: 44px;
+    padding-left: 48px;
+  }
+  .titlebar-nav {
+    display: none !important;
+  }
+  .titlebar-title {
+    font-size: 15px;
+  }
+  .mobile-nav-btn {
+    display: grid;
+    place-items: center;
+    position: fixed;
+    top: env(safe-area-inset-top);
+    left: calc(4px + env(safe-area-inset-left));
+    width: 44px;
+    height: 44px;
+    z-index: 70;
+    color: var(--text-strong);
+    border-radius: 8px;
+  }
+  .mobile-nav-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 55;
+    background: rgba(0, 0, 0, 0.55);
+    animation: fade 0.15s ease-out;
+  }
+
+  /* drawer: server rail + channel list + user panel */
+  .app-body > .guild-rail,
+  .app-body > .sidebar,
+  .app-body > .user-panel-wrap {
+    position: fixed;
+    z-index: 60;
+    transform: translateX(calc(-100% - 120px));
+    transition: transform 0.22s ease;
+  }
+  .app-body > .guild-rail {
+    left: env(safe-area-inset-left);
+    top: calc(44px + env(safe-area-inset-top));
+    bottom: 0;
+    padding-bottom: calc(96px + env(safe-area-inset-bottom));
+    overflow-y: auto;
+    background: var(--bg-base);
+  }
+  .app-body > .sidebar {
+    left: calc(72px + env(safe-area-inset-left));
+    top: calc(44px + env(safe-area-inset-top));
+    bottom: 0;
+    width: min(303px, calc(100vw - 72px - 40px));
+    padding-bottom: calc(80px + env(safe-area-inset-bottom));
+    border-radius: 0 12px 0 0;
+  }
+  .app-body > .user-panel-wrap {
+    left: calc(8px + env(safe-area-inset-left));
+    bottom: calc(8px + env(safe-area-inset-bottom));
+    width: min(358px, calc(100vw - 48px));
+  }
+  html.mobile-nav-open .app-body > .guild-rail,
+  html.mobile-nav-open .app-body > .sidebar,
+  html.mobile-nav-open .app-body > .user-panel-wrap {
+    transform: none;
+  }
+  .channel-item,
+  .dm-item {
+    min-height: 40px;
+  }
+  .channel-item .ch-actions {
+    display: none !important;
+  }
+
+  .app-body > .main {
+    width: 100%;
+    min-width: 0;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  /* chat header: title, a few tools, and search that expands over the header */
+  .chat-header {
+    position: relative;
+    padding: 0 4px 0 12px;
+    gap: 4px;
+  }
+  .chat-header .ch-title {
+    flex: 1;
+    overflow: hidden;
+  }
+  .chat-header .ch-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  .chat-header .ch-topic {
+    display: none;
+  }
+  .chat-header .tools {
+    gap: 2px;
+    flex-shrink: 0;
+  }
+  .chat-header .tools .icon-btn {
+    width: 36px;
+    height: 36px;
+  }
+  .chat-header .search-box {
+    width: 36px;
+    height: 36px;
+    margin: 0;
+    background: transparent;
+    justify-content: center;
+    cursor: pointer;
+  }
+  .chat-header .search-box input {
+    position: absolute;
+    opacity: 0;
+    width: 1px;
+  }
+  .chat-header .search-box:focus-within,
+  .chat-header .search-box:has(input:not(:placeholder-shown)) {
+    position: absolute;
+    left: 8px;
+    right: 8px;
+    top: 6px;
+    width: auto;
+    background: var(--bg-search);
+    z-index: 5;
+    padding-right: 10px;
+  }
+  .chat-header .search-box:focus-within input,
+  .chat-header .search-box:has(input:not(:placeholder-shown)) input {
+    position: static;
+    opacity: 1;
+    width: auto;
+  }
+
+  /* side panels (members, DM profile, search results) slide over the chat */
+  .chat-body {
+    position: relative;
+  }
+  .chat-body > .member-list,
+  .chat-body > .profile-panel {
+    display: block !important;
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 31;
+    width: min(320px, 86vw) !important;
+    box-shadow: var(--shadow-high);
+    animation: slide-in-right 0.2s ease-out;
+  }
+  .chat-body > .member-list.search-results {
+    width: 100% !important;
+  }
+  .side-sheet-backdrop {
+    display: block;
+    position: absolute;
+    inset: 0;
+    z-index: 30;
+    background: rgba(0, 0, 0, 0.5);
+  }
+  .member-list {
+    display: none;
+  }
+
+  /* messages & composer */
+  .message {
+    padding-left: 64px !important;
+    padding-right: 12px !important;
+  }
+  .message .msg-avatar,
+  .message > .avatar {
+    left: 12px !important;
+  }
+  .composer {
+    padding: 0 8px !important;
+  }
+  .attachment-file,
+  .invite-card,
+  .embed,
+  .attachment-img,
+  .attachment-video {
+    max-width: 100% !important;
+  }
+  .attachment-file {
+    width: 100%;
+  }
+
+  /* friends */
+  .friends-header {
+    gap: 0;
+  }
+  .friends-header > .ch-title,
+  .friends-header > .sep {
+    display: none;
+  }
+  .friends-header .tabs {
+    margin: 0;
+    gap: 4px;
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  .friends-header .tabs::-webkit-scrollbar {
+    display: none;
+  }
+  .tab {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+  .friends-list {
+    padding: 12px 12px 0;
+  }
+  .active-now {
+    display: none;
+  }
+  .add-friend form,
+  .add-friend .af-row {
+    flex-wrap: wrap;
+  }
+
+  /* popouts become bottom sheets; menus stay put but fit the screen */
+  .popout {
+    left: 0 !important;
+    right: 0;
+    top: auto !important;
+    bottom: 0;
+    max-height: 85%;
+    overflow-y: auto;
+    border-radius: 16px 16px 0 0;
+    padding-bottom: env(safe-area-inset-bottom);
+    animation: sheet-up 0.2s ease-out;
+  }
+  .popout > * {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  .emoji-picker {
+    height: min(420px, 60vh) !important;
+  }
+  .context-menu {
+    left: 0 !important;
+    right: 0;
+    top: auto !important;
+    bottom: 0;
+    max-width: none;
+    max-height: 75%;
+    overflow-y: auto;
+    padding: 8px 8px calc(8px + env(safe-area-inset-bottom));
+    border-radius: 16px 16px 0 0;
+    animation: sheet-up 0.2s ease-out;
+  }
+  .cm-item {
+    min-height: 40px;
+  }
+
+  /* modals */
+  .modal-backdrop {
+    align-items: end;
+    padding-top: env(safe-area-inset-top);
+  }
+  .modal,
+  .modal.wide,
+  .profile-modal,
+  .crop-modal {
+    width: 100% !important;
+    min-width: 0 !important;
+    max-width: 100% !important;
+    max-height: calc(100% - 24px - env(safe-area-inset-top));
+    border-radius: 16px 16px 0 0;
+    padding-bottom: env(safe-area-inset-bottom);
+    animation: sheet-up 0.2s ease-out;
+  }
+  .modal .modal-body,
+  .profile-modal {
+    overflow-y: auto;
+  }
+  .incoming-call {
+    width: calc(100vw - 24px);
+  }
+  .toast {
+    bottom: calc(80px + env(safe-area-inset-bottom)) !important;
+    max-width: calc(100vw - 24px);
+  }
+
+  /* voice & calls */
+  .call-controls {
+    flex-wrap: wrap;
+    justify-content: center;
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .call-controls button {
+    width: 48px;
+  }
+
+  /* marketplace & explore */
+  .mp-hero {
+    padding: 20px 16px !important;
+  }
+  .mp-toolbar {
+    flex-wrap: wrap;
+  }
+  .mp-toolbar .mp-search {
+    width: 100%;
+  }
+  .mp-grid,
+  .ex-grid {
+    grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)) !important;
+    gap: 10px !important;
+  }
+  .marketplace {
+    padding-left: 12px !important;
+    padding-right: 12px !important;
+  }
+
+  /* user settings: full screen, list → section with a back button */
+  .us-backdrop {
+    padding: 0;
+  }
+  .us-modal {
+    width: 100%;
+    height: 100%;
+    border: 0;
+    border-radius: 0;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .us-nav {
+    width: 100%;
+    border-right: 0;
+  }
+  .us-modal:not(.phone-nav) .us-nav,
+  .us-modal.phone-nav .us-content {
+    display: none;
+  }
+  .us-modal.phone-nav .us-nav-inner {
+    padding-top: 56px;
+  }
+  .us-item {
+    height: 48px;
+  }
+  .us-topbar {
+    padding: 0 8px;
+    gap: 4px;
+  }
+  .us-topbar .phone-back {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    color: var(--text-normal);
+  }
+  .us-page {
+    max-width: calc(100% - 24px);
+  }
+
+  /* server settings: same pattern */
+  .settings-layer {
+    flex-direction: column;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+  .settings-layer.phone-nav .settings-content,
+  .settings-layer:not(.phone-nav) .settings-sidebar {
+    display: none;
+  }
+  .settings-sidebar {
+    flex: 1;
+    min-height: 0;
+  }
+  .settings-sidebar .scroller {
+    display: block;
+  }
+  .settings-nav {
+    width: auto;
+    padding: 56px 12px 24px;
+    box-sizing: border-box;
+  }
+  .settings-nav .sn-item {
+    height: 44px;
+  }
+  .settings-content {
+    flex: 1;
+    min-height: 0;
+    flex-direction: column;
+  }
+  .settings-content > .scroller {
+    min-height: 0;
+  }
+  .phone-topbar {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    height: 50px;
+    flex-shrink: 0;
+    padding: 0 56px 0 8px;
+    font-size: 16px;
+    font-weight: 600;
+    color: var(--text-strong);
+    border-bottom: 1px solid var(--border-faint);
+    white-space: nowrap;
+    overflow: hidden;
+  }
+  .phone-topbar .phone-back {
+    display: grid;
+    place-items: center;
+    width: 40px;
+    height: 40px;
+    flex-shrink: 0;
+    color: var(--text-normal);
+  }
+  .settings-close {
+    position: fixed;
+    top: calc(6px + env(safe-area-inset-top));
+    right: 8px;
+    z-index: 5;
+    background: transparent;
+  }
+  .settings-close span {
+    display: none;
+  }
+  .settings-page {
+    flex-direction: column;
+    gap: 24px;
+    padding: 16px 12px 96px;
+  }
+  .settings-main,
+  .settings-main.wide,
+  .settings-aside {
+    width: 100% !important;
+    max-width: 100% !important;
+  }
+  .settings-page {
+    max-width: 100% !important;
+  }
+  .save-bar {
+    left: 8px;
+    right: 8px;
+    width: auto;
+    max-width: none;
+    bottom: calc(8px + env(safe-area-inset-bottom));
+    flex-wrap: wrap;
+  }
+  .roles-layout {
+    flex-direction: column;
+    min-height: 0;
+  }
+  .roles-list {
+    width: 100%;
+    padding: 0 0 12px;
+    border-right: 0;
+    border-bottom: 1px solid var(--border-faint);
+    margin-bottom: 12px;
+  }
+  .profile-editor {
+    flex-direction: column;
+  }
+  .profile-editor .pe-preview,
+  .pe-preview .user-popout {
+    width: 100%;
+    position: static;
+  }
+  .guild-preview {
+    width: 100%;
+  }
+  .auth-card,
+  .auth-card.wide {
+    width: calc(100vw - 24px);
+  }
+  .list-row {
+    flex-wrap: wrap;
+  }
+  .settings-page table,
+  .us-page table {
+    display: block;
+    overflow-x: auto;
+  }
+}
+
+@keyframes slide-in-right {
+  from {
+    transform: translateX(100%);
+  }
+}
+@keyframes sheet-up {
+  from {
+    transform: translateY(40px);
+    opacity: 0;
+  }
+}

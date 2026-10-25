@@ -16,6 +16,7 @@ import { MessageItem } from './Message';
 import { ProfilePanel } from './Profile';
 import { DmCallArea, VoiceChannelView } from './Voice';
 import { Markdown } from '../lib/markdown';
+import { usePhone } from '../lib/web';
 
 const GROUP_WINDOW = 7 * 60 * 1000;
 
@@ -191,7 +192,7 @@ function SearchResults({ channel, query, onClose }: { channel: Channel; query: s
     api.get(`${path}?${params}`).then(setRes).catch((e) => toast(e.message));
   }, [query, channel.id]);
   return (
-    <div className="member-list scroller thin" style={{ width: 420, background: 'var(--bg-base)' }}>
+    <div className="member-list search-results scroller thin" style={{ width: 420, background: 'var(--bg-base)' }}>
       <div style={{ display: 'flex', alignItems: 'center', padding: '16px 8px 8px', fontWeight: 600 }}>
         <span style={{ flex: 1 }}>{res ? `${res.total} Results` : 'Searching…'}</span>
         <button className="icon-btn" onClick={onClose}><X size={18} /></button>
@@ -233,11 +234,15 @@ export function ChatView({ channelId }: { channelId: string }) {
   const [search, setSearch] = useState('');
   const [activeSearch, setActiveSearch] = useState<string | null>(null);
   const [dragging, setDragging] = useState(false);
+  // Phones have no room for a side column: the member list / profile slide over the chat when asked for.
+  const phone = usePhone();
+  const [phonePanel, setPhonePanel] = useState(false);
   const callActive = useStore((s) => Object.values(s.voiceStates).some((v) => v.channel_id === channelId));
 
   useEffect(() => {
     setActiveSearch(null);
     setSearch('');
+    setPhonePanel(false);
   }, [channelId]);
 
   if (!channel) return <div className="main"><div className="empty-state">Channel not found.</div></div>;
@@ -253,6 +258,9 @@ export function ChatView({ channelId }: { channelId: string }) {
       if (video) voice.setCamera(true);
     });
   };
+
+  const profileOpen = phone ? phonePanel : showProfile;
+  const membersOpen = phone ? phonePanel : showMembers;
 
   const Icon = isVoice ? SpeakerIcon : channel.type === ChannelType.GUILD_ANNOUNCEMENT ? AnnouncementIcon : HashIcon;
 
@@ -282,6 +290,7 @@ export function ChatView({ channelId }: { channelId: string }) {
             <Icon size={24} style={{ color: 'var(--text-muted)' }} />
           )}
           <span
+            className="ch-name"
             style={{ cursor: isDm ? 'pointer' : undefined }}
             onClick={() => (isDm && other ? openModal({ type: 'profile', userId: other.id }) : isGroup ? openModal({ type: 'channel-settings', channelId: channel.id }) : undefined)}
           >
@@ -311,29 +320,29 @@ export function ChatView({ channelId }: { channelId: string }) {
           )}
           {channel.guild_id && !isVoice && (
             <Tooltip text="Notification Settings" side="bottom">
-              <button className="icon-btn" onClick={() => useStore.setState({ settings: { kind: 'user', section: 'notifications' } })}><Bell size={22} /></button>
+              <button className="icon-btn hide-phone" onClick={() => useStore.setState({ settings: { kind: 'user', section: 'notifications' } })}><Bell size={22} /></button>
             </Tooltip>
           )}
           {(isDm || isGroup) && (
             <Tooltip text={isGroup ? 'Add Friends to DM' : 'Add Friends to DM'} side="bottom">
-              <button className="icon-btn" onClick={() => openModal({ type: 'create-dm' })}><UserPlus size={22} /></button>
+              <button className="icon-btn hide-phone" onClick={() => openModal({ type: 'create-dm' })}><UserPlus size={22} /></button>
             </Tooltip>
           )}
           {isDm && (
             <Tooltip text={showProfile ? 'Hide User Profile' : 'Show User Profile'} side="bottom">
-              <button className={`icon-btn${showProfile ? ' active' : ''}`} onClick={() => useStore.setState({ showProfilePanel: !showProfile })}>
+              <button className={`icon-btn${profileOpen ? ' active' : ''}`} onClick={() => (phone ? setPhonePanel(!phonePanel) : useStore.setState({ showProfilePanel: !showProfile }))}>
                 <CircleUserRound size={24} />
               </button>
             </Tooltip>
           )}
           {(isGroup || channel.guild_id) && (
             <Tooltip text={showMembers ? 'Hide Member List' : 'Show Member List'} side="bottom">
-              <button className={`icon-btn${showMembers ? ' active' : ''}`} onClick={() => useStore.setState({ showMemberList: !showMembers })}>
+              <button className={`icon-btn${membersOpen ? ' active' : ''}`} onClick={() => (phone ? setPhonePanel(!phonePanel) : useStore.setState({ showMemberList: !showMembers }))}>
                 <Users size={22} />
               </button>
             </Tooltip>
           )}
-          <div className="search-box">
+          <label className="search-box">
             <input
               placeholder={isDm ? `Search ${other?.username ?? ''}` : channel.guild_id ? `Search ${useStore.getState().guilds[channel.guild_id]?.name ?? ''}` : 'Search'}
               value={search}
@@ -347,7 +356,7 @@ export function ChatView({ channelId }: { channelId: string }) {
               }}
             />
             {search ? <X size={16} style={{ cursor: 'pointer' }} onClick={() => (setSearch(''), setActiveSearch(null))} /> : <Search size={16} />}
-          </div>
+          </label>
         </div>
       </div>
       <div className="chat-body">
@@ -370,11 +379,14 @@ export function ChatView({ channelId }: { channelId: string }) {
         </div>
         {activeSearch ? (
           <SearchResults channel={channel} query={activeSearch} onClose={() => (setActiveSearch(null), setSearch(''))} />
-        ) : isDm && showProfile && other ? (
+        ) : isDm && profileOpen && other ? (
           <ProfilePanel userId={other.id} />
-        ) : (isGroup || (channel.guild_id && !isVoice)) && showMembers ? (
+        ) : (isGroup || (channel.guild_id && !isVoice)) && membersOpen ? (
           <MemberList channel={channel} />
         ) : null}
+        {phone && (activeSearch || (phonePanel && (isDm || isGroup || (channel.guild_id && !isVoice)))) && (
+          <div className="side-sheet-backdrop" onClick={() => (setPhonePanel(false), setActiveSearch(null), setSearch(''))} />
+        )}
       </div>
     </div>
   );

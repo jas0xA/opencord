@@ -6,6 +6,7 @@ import { displayName, goBack, goForward, navigate, useStore } from '../lib/store
 import { FriendsIcon, HashIcon, Logo, SpeakerIcon } from './Icons';
 import { openPopout, Tooltip } from './Layers';
 import { InboxPopout } from './Inbox';
+import { openExternal } from '../lib/web';
 
 export function WindowControls() {
   const [max, setMax] = useState(false);
@@ -70,7 +71,7 @@ export function TitleBar() {
           <button className="tb-btn" onClick={(e) => openPopout(e, 'inbox', () => <InboxPopout />, 'bottom')}><Inbox size={18} /></button>
         </Tooltip>
         <Tooltip text="Help" side="bottom">
-          <button className="tb-btn" onClick={() => window.native?.openExternal('https://github.com/jas0xa/opencord#readme')}><CircleHelp size={18} /></button>
+          <button className="tb-btn" onClick={() => openExternal('https://github.com/jas0xa/opencord#readme')}><CircleHelp size={18} /></button>
         </Tooltip>
         <WindowControls />
       </div>

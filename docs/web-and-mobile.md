@@ -6,7 +6,14 @@ Every OpenCord server serves the full app in the browser at its own address (`[w
 
 Open your server's address, e.g. `https://chat.example.com`. The web app connects to that server automatically, so there's no server picker. Invite links (`https://chat.example.com/invite/abc123`) open the app and join the server after you sign in.
 
-On narrow screens the layout switches to a phone layout: the server and channel lists slide in from the ☰ button, and the member list is hidden.
+On narrow screens the layout switches to a phone layout:
+
+- The server and channel lists slide in from the ☰ button.
+- The member list (or a DM's profile) slides over the chat from the members button; search expands over the channel header.
+- Settings open as a list; tap a section to open it and ← to go back.
+- Pickers, menus and dialogs open as sheets from the bottom of the screen, sized to fit.
+- Long-press a message, channel or member for its menu (the same menu right-click opens on a computer).
+- The composer stays above the on-screen keyboard, and text fields don't zoom the page on iPhone.
 
 | Feature | Desktop app | Desktop browser | Phone browser |
 |---|---|---|---|
@@ -22,7 +29,7 @@ On narrow screens the layout switches to a phone layout: the server and channel 
 1. Open the server's address in **Safari**.
 2. Tap **Share** (square with an arrow), then **Add to Home Screen**.
 
-OpenCord then opens full-screen with its own icon, like an installed app. The web app shows these instructions in a banner on iOS.
+OpenCord then opens full-screen with its own icon, like an installed app, and keeps clear of the notch, the Dynamic Island and the home indicator. The web app shows these instructions in a banner on iOS.
 
 ## Android
 

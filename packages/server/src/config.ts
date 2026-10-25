@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { parse } from 'smol-toml';
 import { z } from 'zod';
+import { MAX_UPLOAD_MB_CAP } from '@opencord/shared';
 
 export const DEFAULT_CONFIG_TOML = `# ─────────────────────────────────────────────────────────────
 #  OpenCord server configuration
@@ -57,7 +58,14 @@ from = "OpenCord <no-reply@example.com>"
 [storage]
 # Database and uploaded files live here (relative to this config file).
 data_dir = "./data"
-max_upload_mb = 25
+# (live) Largest file a message can carry, in MB (up to 500). Also editable in
+# Server Admin → Storage.
+max_upload_mb = 500
+# (live) Total disk space OpenCord may use (database + uploads), in GB. 0 = no limit.
+# Near the limit, new uploads and messages make room by deleting the media of the
+# oldest messages, then the oldest messages themselves. Accounts, servers and
+# everything else are never deleted.
+max_storage_gb = 0
 max_avatar_mb = 8
 max_emoji_kb = 512
 
@@ -177,7 +185,8 @@ const ConfigSchema = z.object({
   }),
   storage: z.object({
     data_dir: z.string().default('./data'),
-    max_upload_mb: z.number().default(25),
+    max_upload_mb: z.number().positive().default(MAX_UPLOAD_MB_CAP).transform((v) => Math.min(v, MAX_UPLOAD_MB_CAP)),
+    max_storage_gb: z.number().min(0).default(0),
     max_avatar_mb: z.number().default(8),
     max_emoji_kb: z.number().default(512),
   }),
@@ -293,6 +302,8 @@ export function watchConfig(cfg: Config, onReload?: (c: Config) => void) {
           cfg.registration = next.registration;
           cfg.limits = next.limits;
           cfg.marketplace = next.marketplace;
+          cfg.storage.max_upload_mb = next.storage.max_upload_mb;
+          cfg.storage.max_storage_gb = next.storage.max_storage_gb;
           console.log('[config] reloaded');
           onReload?.(cfg);
         } catch (e) {

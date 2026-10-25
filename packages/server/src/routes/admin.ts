@@ -1,5 +1,7 @@
 import type { FastifyInstance } from 'fastify';
+import fs from 'node:fs';
 import { z } from 'zod';
+import { MAX_UPLOAD_MB_CAP } from '@opencord/shared';
 import { authenticate, parse, type Ctx } from '../app';
 import { setTomlValue } from '../config-edit';
 import { badRequest, forbidden, notFound } from '../util';
@@ -33,9 +35,21 @@ export default (ctx: Ctx) => async (app: FastifyInstance) => {
         registration: z.enum(['open', 'invite_only', 'allowlist', 'closed']).optional(),
         community_marketplace: z.boolean().optional(),
         require_approval: z.boolean().optional(),
+        max_upload_mb: z.number().min(1).max(MAX_UPLOAD_MB_CAP).optional(),
+        max_storage_gb: z.number().min(0).max(1_000_000).optional(),
       }),
       req.body,
     );
+    if (body.max_upload_mb !== undefined) {
+      const mb = Math.round(body.max_upload_mb);
+      setTomlValue(config.configPath, 'storage', 'max_upload_mb', mb);
+      config.storage.max_upload_mb = mb;
+    }
+    if (body.max_storage_gb !== undefined) {
+      const gb = Math.round(body.max_storage_gb * 1e6) / 1e6;
+      setTomlValue(config.configPath, 'storage', 'max_storage_gb', gb);
+      config.storage.max_storage_gb = gb;
+    }
     // Persist to config.toml so the change survives restarts.
     if (body.registration) {
       setTomlValue(config.configPath, 'registration', 'mode', body.registration);
@@ -50,6 +64,25 @@ export default (ctx: Ctx) => async (app: FastifyInstance) => {
       config.marketplace.require_approval = body.require_approval;
     }
     return { ok: true };
+  });
+
+  /* ── storage ── */
+
+  app.get('/admin/storage', async () => {
+    let disk: { free: number; size: number } | null = null;
+    try {
+      const st = await fs.promises.statfs(config.dataDir);
+      disk = { free: st.bavail * st.bsize, size: st.blocks * st.bsize };
+    } catch {
+      /* not supported here */
+    }
+    return {
+      ...ctx.storage.usage(),
+      max_upload_mb: config.storage.max_upload_mb,
+      max_upload_mb_cap: MAX_UPLOAD_MB_CAP,
+      max_storage_gb: config.storage.max_storage_gb,
+      disk,
+    };
   });
 
   /* ── updates ── */

@@ -1,5 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import type { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import type { MultipartFile } from '@fastify/multipart';
 import { snowflake, badRequest } from './util';
 
@@ -17,19 +19,80 @@ export function splitCrop(value: string): { image: string; crop: string } {
   return m ? { image: value.slice(0, m.index), crop: m[0] } : { image: value, crop: '' };
 }
 
+/** Total size of the files under a directory. */
+function dirSize(dir: string): number {
+  let total = 0;
+  let entries: fs.Dirent[];
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch {
+    return 0;
+  }
+  for (const e of entries) {
+    const p = path.join(dir, e.name);
+    if (e.isDirectory()) total += dirSize(p);
+    else if (e.isFile()) total += fs.statSync(p, { throwIfNoEntry: false })?.size ?? 0;
+  }
+  return total;
+}
+
+const fileSize = (p: string) => fs.statSync(p, { throwIfNoEntry: false })?.size ?? 0;
+
 export class FileStore {
+  /** Bytes stored under `root`, kept current by every save and remove here. */
+  used: number;
+  /** Uploads land here while they stream in; a sibling of `root` so they're never served. */
+  readonly tmpDir: string;
+
   constructor(public root: string) {
     fs.mkdirSync(root, { recursive: true });
+    this.tmpDir = path.join(path.dirname(root), '.upload-tmp');
+    fs.rmSync(this.tmpDir, { recursive: true, force: true }); // leftovers from interrupted uploads
+    fs.mkdirSync(this.tmpDir, { recursive: true });
+    this.used = dirSize(root);
+  }
+
+  private target(kind: string, ext: string, name?: string) {
+    const dir = path.join(this.root, kind);
+    fs.mkdirSync(dir, { recursive: true });
+    const file = `${name ?? snowflake()}.${ext.replace(/[^a-z0-9]/gi, '').slice(0, 8) || 'bin'}`;
+    return { abs: path.join(dir, file), rel: `${kind}/${file}` };
   }
 
   /** Saves a buffer and returns the public path (relative to /uploads). */
   saveBuffer(kind: string, buf: Buffer, ext: string, name?: string): string {
-    const id = name ?? snowflake();
-    const dir = path.join(this.root, kind);
-    fs.mkdirSync(dir, { recursive: true });
-    const file = `${id}.${ext.replace(/[^a-z0-9]/gi, '').slice(0, 8) || 'bin'}`;
-    fs.writeFileSync(path.join(dir, file), buf);
-    return `${kind}/${file}`;
+    const { abs, rel } = this.target(kind, ext, name);
+    this.used += buf.length - fileSize(abs);
+    fs.writeFileSync(abs, buf);
+    return rel;
+  }
+
+  /**
+   * Streams an upload to a temporary file without holding it in memory. `truncated` is set when
+   * the stream stopped at a size limit. Pass the result to `adopt` to keep it or `discard` to drop it.
+   */
+  async receive(stream: Readable & { truncated?: boolean }): Promise<{ tmp: string; size: number; truncated: boolean }> {
+    const tmp = path.join(this.tmpDir, snowflake());
+    try {
+      await pipeline(stream, fs.createWriteStream(tmp));
+    } catch (e) {
+      fs.rmSync(tmp, { force: true });
+      throw e;
+    }
+    return { tmp, size: fileSize(tmp), truncated: !!stream.truncated };
+  }
+
+  /** Moves a received temp file into the store and returns its public path. */
+  adopt(kind: string, tmp: string, ext: string): string {
+    const { abs, rel } = this.target(kind, ext);
+    const size = fileSize(tmp);
+    fs.renameSync(tmp, abs);
+    this.used += size;
+    return rel;
+  }
+
+  discard(tmp: string) {
+    fs.rm(tmp, { force: true }, () => {});
   }
 
   /** Accepts a data: URL (as sent by the client for avatars, icons, etc). */
@@ -72,7 +135,20 @@ export class FileStore {
   remove(rel: string | null | undefined) {
     if (!rel || rel.startsWith('market:') || /^https?:\/\//.test(rel)) return;
     const p = path.join(this.root, splitCrop(rel).image);
-    if (p.startsWith(this.root)) fs.rm(p, { force: true }, () => {});
+    if (!p.startsWith(this.root + path.sep)) return;
+    this.used = Math.max(0, this.used - fileSize(p));
+    fs.rm(p, { force: true }, () => {});
+  }
+}
+
+/** The first bytes of a file (enough for `imageSize`). */
+export function readHead(file: string, bytes = 256 * 1024): Buffer {
+  const fd = fs.openSync(file, 'r');
+  try {
+    const buf = Buffer.alloc(bytes);
+    return buf.subarray(0, fs.readSync(fd, buf, 0, bytes, 0));
+  } finally {
+    fs.closeSync(fd);
   }
 }
 

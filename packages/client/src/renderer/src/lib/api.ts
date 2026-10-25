@@ -31,10 +31,43 @@ async function request<T>(method: string, path: string, body?: unknown, base = b
   } catch {
     throw new ApiError(0, 'Could not reach the server. Check your connection.');
   }
-  const text = await res.text();
-  const data = text ? JSON.parse(text) : null;
-  if (!res.ok) throw new ApiError(res.status, data?.message ?? `Request failed (${res.status})`, data?.code ?? 0, data?.errors ?? {});
+  return parseResponse<T>(res.status, await res.text());
+}
+
+/** Error bodies from a reverse proxy (e.g. nginx's 413 page) aren't JSON. */
+function parseResponse<T>(status: number, text: string): T {
+  let data: any = null;
+  try {
+    data = text ? JSON.parse(text) : null;
+  } catch {
+    if (status < 400) throw new ApiError(status, 'Unexpected response from the server.');
+  }
+  if (status >= 400 || status === 0) {
+    const fallback = status === 413 ? 'That file is too large for this server.' : `Request failed (${status})`;
+    throw new ApiError(status, data?.message ?? fallback, data?.code ?? 0, data?.errors ?? {});
+  }
   return data as T;
+}
+
+/** POSTs a multipart form, reporting upload progress (fetch can't). */
+function upload<T>(path: string, form: FormData, onProgress?: (loaded: number, total: number) => void, signal?: AbortSignal): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', `${baseUrl}${API_PREFIX}${path}`);
+    if (authToken) xhr.setRequestHeader('Authorization', authToken);
+    xhr.upload.onprogress = (e) => e.lengthComputable && onProgress?.(e.loaded, e.total);
+    xhr.onload = () => {
+      try {
+        resolve(parseResponse<T>(xhr.status, xhr.responseText));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    xhr.onerror = () => reject(new ApiError(0, 'Could not reach the server. Check your connection.'));
+    xhr.onabort = () => reject(new ApiError(0, 'Upload cancelled.'));
+    signal?.addEventListener('abort', () => xhr.abort());
+    xhr.send(form);
+  });
 }
 
 export const api = {
@@ -44,6 +77,7 @@ export const api = {
   put: <T = any>(p: string, b?: unknown) => request<T>('PUT', p, b ?? {}),
   del: <T = any>(p: string) => request<T>('DELETE', p),
   raw: request,
+  upload,
 };
 
 /** Resolves a server-relative path (e.g. /uploads/avatars/1.png) to an absolute URL. */

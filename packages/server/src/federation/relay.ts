@@ -150,6 +150,7 @@ export function makeInboxHandler(ctx: Ctx, h: Helpers) {
             id: snowflake(), filename: String(a.filename ?? 'file').slice(0, 200), url: a.url, content_type: String(a.content_type ?? 'application/octet-stream'),
             size: Number(a.size) || 0, width: Number(a.width) || null, height: Number(a.height) || null,
           }));
+        ctx.storage.ensureSpace(m.content.length + 4096);
         const now = Date.now();
         db.transaction(() => {
           db.prepare('INSERT INTO messages (id, channel_id, guild_id, author_id, content, type, created_at, attachments) VALUES (?,?,?,?,?,?,?,?)').run(

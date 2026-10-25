@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { z, type ZodTypeAny } from 'zod';
-import { API_PREFIX, GATEWAY_PATH } from '@opencord/shared';
+import { API_PREFIX, GATEWAY_PATH, MAX_UPLOAD_MB_CAP } from '@opencord/shared';
 import type { Config } from './config';
 import type { DB } from './db';
 import { FileStore } from './files';
@@ -15,6 +15,7 @@ import { Hub } from './gateway/hub';
 import { Mailer } from './mailer';
 import { Sfu } from './sfu';
 import { Store } from './store';
+import { StorageManager } from './storage';
 import { ApiError, sha256 } from './util';
 import { seedMarketplace } from './marketplace-seed';
 import authRoutes from './routes/auth';
@@ -43,6 +44,8 @@ export interface Ctx {
   hub: Hub;
   sfu: Sfu;
   files: FileStore;
+  /** Disk usage against [storage].max_storage_gb, and cleanup of old messages near the limit. */
+  storage: StorageManager;
   mailer: Mailer;
   /** Global OpenCord network (directory of hosts, usernames and public servers); absent when disabled. */
   federation?: Federation;
@@ -96,7 +99,9 @@ export async function buildApp(config: Config, db: DB, opts: { logger?: boolean;
   const app = Fastify({
     logger: opts.logger === false ? false : { level: config.logging.level },
     trustProxy: config.server.trust_proxy,
-    bodyLimit: Math.max(config.storage.max_upload_mb, config.marketplace.max_item_mb, 10) * 1024 * 1024 * 1.4,
+    // JSON bodies carry images as data: URLs (avatars, emoji, marketplace items). Message
+    // attachments are multipart and stream to disk, limited per request below.
+    bodyLimit: Math.max(config.storage.max_avatar_mb, config.marketplace.max_item_mb, 10) * 1024 * 1024 * 1.4,
     ...(httpsOpts as object),
   }) as unknown as FastifyInstance;
 
@@ -117,13 +122,16 @@ export async function buildApp(config: Config, db: DB, opts: { logger?: boolean;
     rtcMinPort: config.sfu.rtc_min_port,
     rtcMaxPort: config.sfu.rtc_max_port,
   });
+  const hub = new Hub(store, sfu);
+  const files = new FileStore(path.join(config.dataDir, 'uploads'));
   const ctx: Ctx = {
     config,
     db,
     store,
-    hub: new Hub(store, sfu),
+    hub,
     sfu,
-    files: new FileStore(path.join(config.dataDir, 'uploads')),
+    files,
+    storage: new StorageManager(db, files, config, hub, store),
     mailer: new Mailer(config),
     updates: new UpdateChecker(config, VERSION),
   };
@@ -163,7 +171,8 @@ export async function buildApp(config: Config, db: DB, opts: { logger?: boolean;
     allowedHeaders: ['Authorization', 'Content-Type'],
     maxAge: 86400,
   });
-  await app.register(multipart, { limits: { fileSize: config.storage.max_upload_mb * 1024 * 1024, files: 10 } });
+  // The hard ceiling; the admin-set max_upload_mb (changeable at runtime) is applied per request.
+  await app.register(multipart, { limits: { fileSize: MAX_UPLOAD_MB_CAP * 1024 * 1024, files: 10 } });
   await app.register(websocket, { options: { maxPayload: 1024 * 1024 } });
   await app.register(fastifyStatic, {
     root: ctx.files.root,

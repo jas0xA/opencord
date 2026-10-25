@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { ExternalLink, Smile, Trash2, X, Copy as CopyIcon, Sparkles, Check } from 'lucide-react';
+import { ChevronLeft, ExternalLink, Smile, Trash2, X, Copy as CopyIcon, Sparkles, Check } from 'lucide-react';
 import { BANNER_PRESETS, ChannelType, Permissions, type GuildFull } from '@opencord/shared';
 import { api, cdn } from '../../lib/api';
 import { ReportQueue } from '../../components/Modals';
@@ -12,6 +12,7 @@ import { closeLayers, openPopout } from '../../components/Layers';
 import { EmojiSettings, SoundboardSettings, StickerSettings } from './Expressions';
 import { AccessSettings, InvitesSettings, MembersSettings, RolesSettings } from './People';
 import { AuditLogSettings, AutoModSettings, BansSettings, IntegrationsSettings, SafetySettings } from './Moderation';
+import { openExternal } from '../../lib/web';
 
 /* ───────────── shared bits ───────────── */
 
@@ -568,6 +569,8 @@ export function ServerSettings({ guildId }: { guildId: string }) {
   const section = useStore((s) => (s.settings?.kind === 'guild' ? s.settings.section : 'profile'));
   const me = useStore((s) => s.me);
   const [deleting, setDeleting] = useState(false);
+  // Phone layout: the section list and the open section take turns filling the screen.
+  const [phoneNav, setPhoneNav] = useState(section === 'profile');
   if (!guild) return null;
   const P = Permissions;
   const owner = guild.owner_id === me?.id;
@@ -625,9 +628,11 @@ export function ServerSettings({ guildId }: { guildId: string }) {
   ];
   const go = (id: string) => {
     if (id === 'delete') return setDeleting(true);
-    if (id === 'apps') return window.native?.openExternal('https://github.com/jas0xa/opencord/blob/main/docs/webhooks.md');
+    if (id === 'apps') return openExternal('https://github.com/jas0xa/opencord/blob/main/docs/webhooks.md');
     useStore.setState({ settings: { kind: 'guild', guildId, section: id } });
+    setPhoneNav(false);
   };
+  const phoneTitle = groups.flatMap((g) => g.items).find((i) => i.id === section)?.label ?? 'Server Settings';
   const close = () => useStore.setState({ settings: null });
 
   const pages: Record<string, React.ReactNode> = {
@@ -662,7 +667,7 @@ export function ServerSettings({ guildId }: { guildId: string }) {
   };
 
   return (
-    <div className="settings-layer">
+    <div className={`settings-layer${phoneNav ? ' phone-nav' : ''}`}>
       <div className="drag-strip" />
       <WindowControls />
       <div className="settings-sidebar">
@@ -690,6 +695,10 @@ export function ServerSettings({ guildId }: { guildId: string }) {
         </div>
       </div>
       <div className="settings-content">
+        <div className="phone-topbar">
+          <button className="phone-back" onClick={() => setPhoneNav(true)} aria-label="Back"><ChevronLeft size={24} /></button>
+          {phoneTitle}
+        </div>
         <div className="scroller" key={section}>{pages[section] ?? pages.profile}</div>
         <div className="settings-close">
           <button onClick={close} aria-label="Close"><X size={18} /></button>

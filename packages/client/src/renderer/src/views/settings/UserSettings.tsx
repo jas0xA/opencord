@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import {
-  Accessibility, Bell, CircleUser, Gamepad2, Keyboard, Laptop, Languages, LogOut, MessageSquareLock, Mic, Monitor, Palette, Pencil, Plug,
+  Accessibility, Bell, ChevronLeft, CircleUser, Gamepad2, Keyboard, Laptop, Languages, LogOut, MessageSquareLock, Mic, Monitor, Palette, Pencil, Plug,
   Search, Shield, ShieldCheck, Store, Package, Wrench, X, Activity, Brush,
 } from 'lucide-react';
 import { CONNECTION_PROVIDERS, GatewayOp, type Connection, type UserSettings as Settings } from '@opencord/shared';
@@ -15,6 +15,7 @@ import { VoicePage } from './VoiceSettings';
 import { AdminPage } from './AdminSettings';
 import { AccountPage } from './Account';
 import { ThemesPage } from './Themes';
+import { openExternal } from '../../lib/web';
 
 export function Row({ title, desc, children }: { title: string; desc?: React.ReactNode; children: React.ReactNode }) {
   return (
@@ -109,7 +110,7 @@ function ConnectionCard({ c }: { c: Connection }) {
       {c.url && (
         <div className="cc-meta">
           <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.url}</span>
-          <button className="btn sm secondary" onClick={() => window.native?.openExternal(c.url!)}>Open</button>
+          <button className="btn sm secondary" onClick={() => openExternal(c.url!)}>Open</button>
         </div>
       )}
       <div className="cc-toggle">
@@ -448,6 +449,8 @@ export function UserSettings() {
   const me = useStore((s) => s.me)!;
   const section = useStore((s) => (s.settings?.kind === 'user' ? s.settings.section : 'account'));
   const [q, setQ] = useState('');
+  // Phone layout: the section list and the open section take turns filling the screen.
+  const [phoneNav, setPhoneNav] = useState(section === 'account');
   const [version, setVersion] = useState('');
   useEffect(() => {
     window.native?.version().then(setVersion);
@@ -503,6 +506,7 @@ export function UserSettings() {
       return;
     }
     useStore.setState({ settings: { kind: 'user', section: id } });
+    setPhoneNav(false);
   };
   const close = () => useStore.setState({ settings: null });
 
@@ -529,7 +533,7 @@ export function UserSettings() {
 
   return (
     <div className="us-backdrop" onMouseDown={(e) => e.target === e.currentTarget && close()}>
-      <div className="us-modal">
+      <div className={`us-modal${phoneNav ? ' phone-nav' : ''}`}>
         <div className="us-nav scroller thin">
           <div className="us-nav-inner">
             <div className="us-me" onClick={() => go('profiles')}>
@@ -573,6 +577,7 @@ export function UserSettings() {
         </div>
         <div className="us-content">
           <div className="us-topbar">
+            <button className="phone-back" onClick={() => setPhoneNav(true)} aria-label="Back"><ChevronLeft size={24} /></button>
             {title}
             <button className="us-close" onClick={close} aria-label="Close"><X size={24} /></button>
           </div>

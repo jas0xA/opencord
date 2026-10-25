@@ -3,7 +3,7 @@ import { Check, Trash2, X } from 'lucide-react';
 import type { MarketplaceItem, PublicUser } from '@opencord/shared';
 import { api } from '../../lib/api';
 import { displayName, toast, useStore } from '../../lib/store';
-import { formatShortDate } from '../../lib/utils';
+import { formatBytes, formatShortDate } from '../../lib/utils';
 import { Avatar } from '../../components/Avatar';
 import { MarketplacePreview } from '../../components/Cosmetics';
 import { Toggle } from '../server-settings/ServerSettings';
@@ -44,7 +44,7 @@ export function AdminPage() {
   return (
     <div className="us-page">
       <p className="us-desc">Instance administration for <b>{useStore.getState().instance?.name}</b>. Changes here are written to the server's config.toml.</p>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 8, marginBottom: 32 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(96px, 1fr))', gap: 8, marginBottom: 32 }}>
         {[['Users', stats.users], ['Online', stats.online], ['Servers', stats.guilds], ['Messages', stats.messages], ['Community items', stats.marketplace_items]].map(([l, v]) => (
           <div key={l as string} className="us-card" style={{ textAlign: 'center', marginBottom: 0 }}>
             <div style={{ fontSize: 22, fontWeight: 800, color: 'var(--text-strong)' }}>{v}</div>
@@ -112,6 +112,7 @@ export function AdminPage() {
         </div>
       )}
 
+      <StoragePanel />
       <UpdatePanel />
       <NetworkPanel />
 
@@ -274,6 +275,102 @@ function UpdatePanel() {
         >
           {busy ? 'Checking…' : 'Check for updates'}
         </button>
+      </div>
+    </>
+  );
+}
+
+interface StorageStatus {
+  files: number;
+  database: number;
+  total: number;
+  limit: number;
+  max_upload_mb: number;
+  max_upload_mb_cap: number;
+  max_storage_gb: number;
+  disk: { free: number; size: number } | null;
+}
+
+/** Per-file upload limit and the total space OpenCord may use, with current usage. */
+function StoragePanel() {
+  const [st, setSt] = useState<StorageStatus | null>(null);
+  const [upload, setUpload] = useState('');
+  const [limit, setLimit] = useState('');
+  const load = () =>
+    api.get<StorageStatus>('/admin/storage').then((s) => {
+      setSt(s);
+      setUpload(String(s.max_upload_mb));
+      setLimit(String(s.max_storage_gb));
+    });
+  useEffect(() => void load().catch(() => {}), []);
+  if (!st) return null;
+
+  const save = async (patch: Record<string, number>) => {
+    try {
+      await api.patch('/admin/settings', patch);
+      await load();
+      if ('max_upload_mb' in patch) {
+        const inst = useStore.getState().instance;
+        if (inst) useStore.setState({ instance: { ...inst, max_upload_mb: patch.max_upload_mb } });
+      }
+      toast('Saved.', 'info');
+    } catch (e: any) {
+      toast(e.message);
+    }
+  };
+  const uploadMb = Number(upload);
+  const uploadOk = Number.isFinite(uploadMb) && uploadMb >= 1 && uploadMb <= st.max_upload_mb_cap;
+  const limitGb = Number(limit);
+  const limitOk = limit.trim() !== '' && Number.isFinite(limitGb) && limitGb >= 0;
+  const pct = st.limit ? Math.min(100, (st.total / st.limit) * 100) : 0;
+  const tooBig = st.disk && limitGb > 0 && limitGb * 1024 ** 3 > st.total + st.disk.free;
+
+  return (
+    <>
+      <h3 style={{ marginTop: 32 }}>Storage</h3>
+      <div className="us-card">
+        <div style={{ display: 'flex', justifyContent: 'space-between', gap: 8, flexWrap: 'wrap', fontSize: 14 }}>
+          <b style={{ color: 'var(--text-strong)' }}>
+            {formatBytes(st.total)} used{st.limit ? ` of ${formatBytes(st.limit)}` : ''}
+          </b>
+          <span style={{ color: 'var(--text-muted)' }}>
+            {st.limit ? `${pct.toFixed(0)}%` : 'No limit'}
+            {st.disk && ` · ${formatBytes(st.disk.free)} free on disk`}
+          </span>
+        </div>
+        {st.limit > 0 && (
+          <div className="up-bar storage-bar" style={{ height: 8, borderRadius: 4, marginTop: 10, background: 'var(--bg-hover)', overflow: 'hidden' }}>
+            <i style={{ display: 'block', height: '100%', width: `${pct}%`, background: pct >= 90 ? 'var(--red)' : pct >= 75 ? 'var(--yellow, #f0b232)' : 'var(--brand)' }} />
+          </div>
+        )}
+        <div style={{ marginTop: 8, fontSize: 13, color: 'var(--text-muted)' }}>
+          Uploaded files {formatBytes(st.files)} · Database {formatBytes(st.database)}
+        </div>
+      </div>
+
+      <div className="form-row">
+        <label className="label">Max file size (MB, up to {st.max_upload_mb_cap})</label>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input className="input" type="number" inputMode="numeric" min={1} max={st.max_upload_mb_cap} value={upload} onChange={(e) => setUpload(e.target.value)} />
+          <button className="btn sm" disabled={!uploadOk || uploadMb === st.max_upload_mb} onClick={() => save({ max_upload_mb: uploadMb })}>Save</button>
+        </div>
+        <div className="us-desc" style={{ margin: '6px 0 0', fontSize: 13 }}>
+          The largest file someone can attach to a message. Behind a reverse proxy, allow at least this request size there too (nginx: <code className="md-code">client_max_body_size</code>).
+        </div>
+      </div>
+
+      <div className="form-row">
+        <label className="label">Storage limit (GB, 0 = no limit)</label>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <input className="input" type="number" inputMode="decimal" min={0} step="any" value={limit} onChange={(e) => setLimit(e.target.value)} />
+          <button className="btn sm" disabled={!limitOk || limitGb === st.max_storage_gb} onClick={() => save({ max_storage_gb: limitGb })}>Save</button>
+        </div>
+        <div className="us-desc" style={{ margin: '6px 0 0', fontSize: 13 }}>
+          The most disk space OpenCord may use for its database and uploads. When a new upload or message would bring it near the limit, OpenCord makes
+          room by deleting the files of the oldest messages first and, only if that isn't enough, the oldest messages themselves (pinned messages last).
+          Accounts, servers, channels, roles, avatars, emoji and stickers are never deleted.
+        </div>
+        {tooBig && <div className="info-box warn" style={{ marginTop: 8 }}>This is more than the disk has room for, so the disk may fill up before the limit is reached.</div>}
       </div>
     </>
   );

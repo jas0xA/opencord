@@ -5,7 +5,7 @@ import {
 } from '@opencord/shared';
 import { authenticate, parse, type Ctx } from '../app';
 import { extractUrls, fetchEmbed } from '../embeds';
-import { imageSize } from '../files';
+import { imageSize, readHead } from '../files';
 import { ApiError, badRequest, forbidden, inviteCode, json, notFound, randomToken, snowflake } from '../util';
 import { channelCreateSchema, normalizeChannelName } from './guilds';
 import { areFriends, isBlocked, mutualGuildIds } from './users';
@@ -209,21 +209,39 @@ export default (ctx: Ctx) => async (app: FastifyInstance) => {
     return rows.map((r) => store.message(r, req.userId));
   });
 
-  async function readMessageBody(req: FastifyRequest): Promise<{ body: z.infer<typeof messageSchema>; uploads: { buf: Buffer; filename: string; mime: string }[] }> {
+  type Upload = { tmp: string; size: number; filename: string; mime: string };
+
+  // Uploads stream to temp files; whatever a request didn't keep (rejected message, error) is dropped.
+  app.addHook('onResponse', async (req) => {
+    for (const u of ((req as any).uploads ?? []) as Upload[]) files.discard(u.tmp);
+  });
+
+  async function readMessageBody(req: FastifyRequest, canAttach: boolean): Promise<{ body: z.infer<typeof messageSchema>; uploads: Upload[] }> {
     if (!req.isMultipart()) return { body: parse(messageSchema, req.body), uploads: [] };
+    // Make room up front (old media/messages go first when near the storage limit), using the
+    // request size, so an upload that can't fit is turned away before it's received.
+    if (canAttach) ctx.storage.ensureSpace(Number(req.headers['content-length']) || 0);
     let payload: unknown = {};
-    const uploads: { buf: Buffer; filename: string; mime: string }[] = [];
-    const max = config.storage.max_upload_mb * 1024 * 1024;
-    for await (const part of req.parts()) {
-      if (part.type === 'file') {
-        const buf = await part.toBuffer();
-        if (buf.length > max) throw new ApiError(413, `Files must be smaller than ${config.storage.max_upload_mb} MB`, 40005);
-        uploads.push({ buf, filename: part.filename.slice(0, 200) || 'file', mime: part.mimetype });
-      } else if (part.fieldname === 'payload_json') {
-        payload = json(part.value as string, {});
-      } else if (part.fieldname === 'content') {
-        payload = { ...(payload as object), content: part.value };
+    const uploads: Upload[] = [];
+    (req as any).uploads = uploads;
+    const maxMb = config.storage.max_upload_mb;
+    const tooLarge = () => new ApiError(413, `Files must be smaller than ${maxMb} MB`, 40005);
+    try {
+      for await (const part of req.parts({ limits: { fileSize: maxMb * 1024 * 1024 } })) {
+        if (part.type === 'file') {
+          if (!canAttach) throw forbidden('You cannot attach files here');
+          const got = await files.receive(part.file);
+          uploads.push({ tmp: got.tmp, size: got.size, filename: part.filename.slice(0, 200) || 'file', mime: part.mimetype });
+          if (got.truncated) throw tooLarge();
+        } else if (part.fieldname === 'payload_json') {
+          payload = json(part.value as string, {});
+        } else if (part.fieldname === 'content') {
+          payload = { ...(payload as object), content: part.value };
+        }
       }
+    } catch (e: any) {
+      if (e?.code === 'FST_REQ_FILE_TOO_LARGE') throw tooLarge();
+      throw e;
     }
     return { body: parse(messageSchema, payload), uploads };
   }
@@ -301,7 +319,7 @@ export default (ctx: Ctx) => async (app: FastifyInstance) => {
       if (m?.timeout_until > Date.now()) throw new ApiError(403, 'You are timed out in this server.', 40008);
       throw forbidden('You do not have permission to send messages in this channel.');
     }
-    const { body, uploads } = await readMessageBody(req);
+    const { body, uploads } = await readMessageBody(req, hasPermission(perms, P.ATTACH_FILES));
     const content = body.content.trim();
     if (!content && !uploads.length && !body.sticker_ids?.length) throw badRequest('Cannot send an empty message');
     if (content.length > config.limits.max_message_length) throw badRequest(`Messages are limited to ${config.limits.max_message_length} characters`);
@@ -361,13 +379,16 @@ export default (ctx: Ctx) => async (app: FastifyInstance) => {
       }
     }
 
+    // Near the storage limit this deletes old media/messages to make room (uploads were checked as they arrived).
+    if (!uploads.length) ctx.storage.ensureSpace(content.length + 1024);
+
     const messageId = snowflake();
     const attachments: Attachment[] = uploads.map((u) => {
       const ext = u.filename.includes('.') ? u.filename.split('.').pop()! : 'bin';
-      const path = files.saveBuffer(`attachments/${id}`, u.buf, ext);
-      const size = u.mime.startsWith('image/') ? imageSize(u.buf) : null;
+      const size = u.mime.startsWith('image/') ? imageSize(readHead(u.tmp)) : null;
+      const path = files.adopt(`attachments/${id}`, u.tmp, ext);
       return {
-        id: snowflake(), filename: u.filename, url: `/uploads/${path}`, content_type: u.mime, size: u.buf.length,
+        id: snowflake(), filename: u.filename, url: `/uploads/${path}`, content_type: u.mime, size: u.size,
         width: size?.width ?? null, height: size?.height ?? null,
       };
     });
@@ -774,6 +795,7 @@ export default (ctx: Ctx) => async (app: FastifyInstance) => {
       req.body,
     );
     if (!body.content && !body.embeds?.length) throw badRequest('Cannot send an empty message');
+    ctx.storage.ensureSpace(body.content.length + 4096);
     const id = snowflake();
     const embeds = (body.embeds ?? []).map((e) => ({ type: 'rich', ...e, color: typeof e.color === 'number' ? `#${e.color.toString(16).padStart(6, '0')}` : e.color }));
     db.prepare(

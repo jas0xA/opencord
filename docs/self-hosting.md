@@ -108,7 +108,9 @@ All settings have defaults, so you only need to change what you care about. Sett
 | | `max_accounts_per_email` | `5` | How many accounts one email may own |
 | `smtp` | `enabled`, `host`, `port`, `secure`, `user`, `pass`, `from` | off | Used for email verification and password resets |
 | `storage` | `data_dir` | `./data` | Database and uploads |
-| | `max_upload_mb`, `max_avatar_mb`, `max_emoji_kb` | 25 / 8 / 512 | |
+| | `max_upload_mb` | `500` | Largest file a message can carry, up to 500 MB *(live, also in Server Admin → Storage)* |
+| | `max_storage_gb` | `0` | Total space OpenCord may use (database + uploads); `0` = no limit. See [Storage limit](#storage-limit) *(live, also in Server Admin → Storage)* |
+| | `max_avatar_mb`, `max_emoji_kb` | 8 / 512 | |
 | `limits` | `max_guilds_per_user`, `max_members_per_guild`, `max_message_length`, `messages_per_10s`, `max_group_dm_size` | | *(live)* |
 | `marketplace` | `community_enabled` | `true` | Let users publish their own cosmetics *(live)* |
 | | `require_approval` | `false` | Admins approve community items before they are listed *(live)* |
@@ -212,7 +214,8 @@ nginx:
 ```nginx
 server {
     server_name chat.example.com;
-    client_max_body_size 30m;
+    client_max_body_size 510m;   # at least [storage].max_upload_mb
+    proxy_request_buffering off; # stream big uploads straight through
     location / {
         proxy_pass http://127.0.0.1:8443;
         proxy_http_version 1.1;
@@ -226,6 +229,24 @@ server {
 ```
 
 Set `trust_proxy = true` and `public_url = "https://chat.example.com"`.
+
+Caddy has no request size limit by default. With nginx, keep `client_max_body_size` at or above the max file size you set in Server Admin → Storage, or larger uploads fail with "That file is too large for this server". Cloudflare's proxy caps uploads at 100 MB on its free plan.
+
+## Storage limit
+
+**Server Admin → Storage** (in the app, for instance admins) shows how much space OpenCord uses and has two settings, also in `config.toml` under `[storage]`:
+
+- **Max file size** (`max_upload_mb`): the largest file someone can attach to a message, up to 500 MB. Uploads stream to disk, so large files don't use memory.
+- **Storage limit** (`max_storage_gb`): the most disk space OpenCord may use for its database and uploads. `0` means no limit.
+
+When a new upload or message would take usage above 95% of the limit, OpenCord makes room, down to 90%, in this order:
+
+1. The files of the oldest messages. A message that also has text keeps its text; one that was only a file is removed.
+2. Only if that isn't enough, the oldest messages themselves.
+
+Pinned messages go last in both steps. **Accounts, servers, channels, roles, invites, avatars, banners, emoji, stickers, soundboard sounds, marketplace items and settings are never deleted**; only message history and its attachments are treated as expendable. If nothing is left to delete and there is still no room, the upload is refused ("This server is out of storage space") and the server logs what happened.
+
+Set the limit below the free space on the disk (the admin page warns if it isn't), and keep backups if your message history matters.
 
 ## Voice & video
 

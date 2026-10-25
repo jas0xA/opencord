@@ -15,6 +15,7 @@ import { memberMenu } from './Sidebars';
 import { EmojiPicker } from './Pickers';
 import { UserPopout } from './Profile';
 import { Composer } from './Composer';
+import { openExternal } from '../lib/web';
 
 /* ───────────── invite embeds ───────────── */
 
@@ -103,7 +104,7 @@ function Accessories({ m }: { m: Message }) {
               alt={a.filename}
               style={a.width && a.height ? { aspectRatio: `${a.width} / ${a.height}`, width: Math.min(a.width, 550, (350 * a.width) / a.height) } : undefined}
               onClick={() => openModal({ type: 'image', url })}
-              onContextMenu={(e) => openContextMenu(e, [{ label: 'Copy Link', onClick: () => copy(url) }, { label: 'Open Link', onClick: () => window.native?.openExternal(url) }])}
+              onContextMenu={(e) => openContextMenu(e, [{ label: 'Copy Link', onClick: () => copy(url) }, { label: 'Open Link', onClick: () => openExternal(url) }])}
             />
           );
         if (a.content_type.startsWith('video/')) return <video key={a.id} className="attachment-video" src={url} controls />;
@@ -124,7 +125,7 @@ function Accessories({ m }: { m: Message }) {
           <div key={a.id} className="attachment-file">
             <FileText size={32} color="var(--text-muted)" />
             <div style={{ flex: 1, minWidth: 0 }}>
-              <a className="af-name" href={url} onClick={(e) => (e.preventDefault(), window.native?.openExternal(url))}>{a.filename}</a>
+              <a className="af-name" href={url} onClick={(e) => (e.preventDefault(), openExternal(url))}>{a.filename}</a>
               <div className="af-size">{formatBytes(a.size)}</div>
             </div>
             <Tooltip text="Download">
@@ -145,7 +146,7 @@ function Accessories({ m }: { m: Message }) {
             {e.site_name && <div className="e-site">{e.site_name}</div>}
             {e.title &&
               (e.url ? (
-                <a className="e-title" href={e.url} onClick={(ev) => (ev.preventDefault(), window.native?.openExternal(e.url!))}>{e.title}</a>
+                <a className="e-title" href={e.url} onClick={(ev) => (ev.preventDefault(), openExternal(e.url!))}>{e.title}</a>
               ) : (
                 <div className="e-title plain">{e.title}</div>
               ))}

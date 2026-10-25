@@ -15,6 +15,14 @@ import { EmojiPicker, StickerPicker } from './Pickers';
 const drafts = new Map<string, string>();
 const fileSinks = new Map<string, (files: File[]) => void>();
 
+/** Drops files over the server's per-file limit (with a toast) and keeps at most 10. */
+function withinLimit(cur: File[], added: File[]) {
+  const maxMb = useStore.getState().instance?.max_upload_mb ?? 25;
+  const ok = added.filter((f) => f.size <= maxMb * 1024 * 1024);
+  if (ok.length < added.length) toast(`Files must be smaller than ${maxMb} MB`);
+  return [...cur, ...ok].slice(0, 10);
+}
+
 /** Lets the chat view hand dropped/pasted files to the active composer. */
 export function addFilesToComposer(channelId: string, files: File[]) {
   fileSinks.get(channelId)?.(files);
@@ -42,7 +50,7 @@ export function Composer({ channelId, editing }: { channelId: string; editing?: 
     if (editing) return;
     setText(drafts.get(channelId) ?? '');
     setFiles([]);
-    fileSinks.set(channelId, (f) => setFiles((cur) => [...cur, ...f].slice(0, 10)));
+    fileSinks.set(channelId, (f) => setFiles((cur) => withinLimit(cur, f)));
     ref.current?.focus();
     return () => {
       fileSinks.delete(channelId);
@@ -237,7 +245,7 @@ export function Composer({ channelId, editing }: { channelId: string; editing?: 
     const pasted = [...e.clipboardData.files];
     if (pasted.length) {
       e.preventDefault();
-      setFiles((cur) => [...cur, ...pasted].slice(0, 10));
+      setFiles((cur) => withinLimit(cur, pasted));
     }
   };
 
@@ -245,7 +253,7 @@ export function Composer({ channelId, editing }: { channelId: string; editing?: 
     const input = document.createElement('input');
     input.type = 'file';
     input.multiple = true;
-    input.onchange = () => input.files && setFiles((cur) => [...cur, ...input.files!].slice(0, 10));
+    input.onchange = () => input.files && setFiles((cur) => withinLimit(cur, [...input.files!]));
     input.click();
   };
 
@@ -262,6 +270,7 @@ export function Composer({ channelId, editing }: { channelId: string; editing?: 
           ))}
         </div>
       )}
+      {!editing && <UploadProgress channelId={channelId} />}
       <div className="composer-box">
         {replying && (
           <div className="composer-reply">
@@ -346,5 +355,34 @@ function UploadTile({ file, onRemove }: { file: File; onRemove: () => void }) {
       <div style={{ fontSize: 12, color: 'var(--text-muted)' }}>{formatBytes(file.size)}</div>
       <button className="ut-remove" onClick={onRemove}><Trash2 size={16} /></button>
     </div>
+  );
+}
+
+/** Files on their way to the server for this channel, with a cancel button. */
+function UploadProgress({ channelId }: { channelId: string }) {
+  const all = useStore((s) => s.uploads);
+  const uploads = Object.entries(all).filter(([, u]) => u.channelId === channelId);
+  if (!uploads.length) return null;
+  return (
+    <>
+      {uploads.map(([nonce, u]) => {
+        const pct = u.total ? Math.round((u.loaded / u.total) * 100) : 0;
+        return (
+          <div key={nonce} className="upload-progress">
+            <FileText size={20} />
+            <div className="up-main">
+              <div className="up-name">
+                <span>{u.names.length > 1 ? `${u.names.length} files` : u.names[0]}</span>
+                <span className="up-pct">{pct < 100 ? `${formatBytes(u.loaded)} / ${formatBytes(u.total)}` : 'Processing…'}</span>
+              </div>
+              <div className="up-bar"><i style={{ width: `${pct}%` }} /></div>
+            </div>
+            <Tooltip text="Cancel upload">
+              <button className="icon-btn" aria-label="Cancel upload" onClick={u.abort}><X size={16} /></button>
+            </Tooltip>
+          </div>
+        );
+      })}
+    </>
   );
 }

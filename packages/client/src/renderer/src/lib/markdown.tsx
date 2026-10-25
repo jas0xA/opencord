@@ -1,6 +1,7 @@
 import { Fragment, useState, type ReactNode } from 'react';
 import { cdn } from './api';
 import { displayName, findChannel, navigate, openModal, useStore } from './store';
+import { openExternal } from './web';
 
 interface Ctx {
   guildId: string | null;
@@ -38,10 +39,6 @@ function Spoiler({ children }: { children: ReactNode }) {
   );
 }
 
-function openLink(url: string) {
-  if (window.native) window.native.openExternal(url);
-  else window.open(url, '_blank');
-}
 
 function Mention({ userId, guildId }: { userId: string; guildId: string | null }) {
   const user = useStore((s) => (s.me?.id === userId ? s.me : s.users[userId]));
@@ -91,10 +88,10 @@ function inline(text: string, ctx: Ctx): ReactNode[] {
     else if (m[8] !== undefined) out.push(<Spoiler key={k}>{inline(m[8], ctx)}</Spoiler>);
     else if (m[9] !== undefined) {
       const url = m[10];
-      out.push(<a key={k} className="md-link" href={url} title={url} onClick={(e) => (e.preventDefault(), openLink(url))}>{inline(m[9], ctx)}</a>);
+      out.push(<a key={k} className="md-link" href={url} title={url} onClick={(e) => (e.preventDefault(), openExternal(url))}>{inline(m[9], ctx)}</a>);
     } else if (m[11] || m[12]) {
       const url = m[11] ?? m[12];
-      out.push(<a key={k} className="md-link" href={url} onClick={(e) => (e.preventDefault(), openLink(url))}>{url}</a>);
+      out.push(<a key={k} className="md-link" href={url} onClick={(e) => (e.preventDefault(), openExternal(url))}>{url}</a>);
     } else if (m[13]) out.push(<Mention key={k} userId={m[13]} guildId={ctx.guildId} />);
     else if (m[14]) {
       const g = ctx.guildId ? useStore.getState().guilds[ctx.guildId] : null;

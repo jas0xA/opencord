@@ -3,6 +3,9 @@ export const DEFAULT_PORT = 8443;
 export const API_PREFIX = '/api/v1';
 export const GATEWAY_PATH = '/gateway';
 
+/** Largest per-file upload limit an admin can set (Server Admin → Storage, or [storage].max_upload_mb). */
+export const MAX_UPLOAD_MB_CAP = 500;
+
 /** Server banner presets shown in Server Settings → Server Profile (index = guild.banner_preset). */
 export const BANNER_PRESETS: string[] = [
   'linear-gradient(180deg, #0d0d0f 0%, #3a3b40 100%)',

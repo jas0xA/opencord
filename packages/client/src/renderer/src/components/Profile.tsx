@@ -11,6 +11,7 @@ import { ProfileEffect, StyledName, useBannerStyle } from './Cosmetics';
 import { GuildIcon } from './GuildRail';
 import { BadgeIcon } from './Icons';
 import { closeLayers, openContextMenu, Tooltip } from './Layers';
+import { openExternal } from '../lib/web';
 
 interface ProfileData {
   user: PublicUser;
@@ -270,7 +271,7 @@ export function ProfilePanel({ userId }: { userId: string }) {
               <h3>Connections</h3>
               <div className="profile-connections">
                 {data.connections.map((c) => (
-                  <div key={c.type + c.name} className="profile-connection" onClick={() => c.url && window.native?.openExternal(c.url)}>
+                  <div key={c.type + c.name} className="profile-connection" onClick={() => c.url && openExternal(c.url)}>
                     {connectionLogo(c.type, 20)}
                     {c.name}
                     {c.verified && <Check size={14} color="var(--green-status)" />}
@@ -417,7 +418,7 @@ export function ProfileModal({ userId, guildId }: { userId: string; guildId?: st
                   <h3>Connections</h3>
                   <div className="profile-connections" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr' }}>
                     {data.connections.map((c) => (
-                      <div key={c.type + c.name} className="profile-connection" onClick={() => c.url && window.native?.openExternal(c.url)}>
+                      <div key={c.type + c.name} className="profile-connection" onClick={() => c.url && openExternal(c.url)}>
                         {connectionLogo(c.type, 24)}
                         <span style={{ flex: 1 }}>{c.name}</span>
                         {c.verified && <Check size={14} color="var(--green-status)" />}
