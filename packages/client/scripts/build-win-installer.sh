@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Builds release/OpenCord-Setup-<version>.exe on Linux without Wine. electron-builder's own NSIS
-# target needs Wine to generate its uninstaller; this compiles build/installer.nsi with the native
+# target needs Wine to generate its uninstaller; this compiles build/opencord-installer.nsi with the native
+# (Not named installer.nsi: electron-builder would treat that as its own NSIS script.)
 # Linux makensis that electron-builder already downloads.
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -31,6 +32,6 @@ EOF
   -DICON="$PWD/release/icon.ico" \
   -DLICENSE="$PWD/../../LICENSE" \
   -DOUTFILE="$PWD/release/OpenCord-Setup-$VERSION.exe" \
-  build/installer.nsi
+  build/opencord-installer.nsi
 
 echo "Built release/OpenCord-Setup-$VERSION.exe"
