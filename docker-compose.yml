@@ -1,0 +1,48 @@
+# OpenCord server with Docker Compose. Works on x86-64 and ARM64 (Raspberry Pi 4/5, Ampere, Apple Silicon).
+#
+#   1. Set OPENCORD_PUBLIC_URL (and OPENCORD_ANNOUNCED_IP if clients can't reach the media ports
+#      at that address) below.
+#   2. docker compose up -d
+#   3. Open the public URL in a browser, or connect from the desktop app. The first account
+#      becomes the admin.
+#
+# Update:   docker compose pull && docker compose up -d
+#           (or enable the "autoupdate" profile below to have it done for you)
+# Logs:     docker compose logs -f opencord
+# Config:   /data/config.toml inside the "opencord-data" volume; the variables below override it.
+# Backup:   docker compose exec opencord node /app/opencord-server.mjs backup /data/backup.db
+
+services:
+  opencord:
+    image: ghcr.io/jas0xa/opencord:latest   # or pin a version, e.g. ghcr.io/jas0xa/opencord:0.1.0
+    container_name: opencord
+    restart: unless-stopped
+    ports:
+      - "8443:8443"                  # web app, API and gateway (put a TLS reverse proxy in front)
+      - "40000-40100:40000-40100/udp" # voice/video media
+      - "40000-40100:40000-40100/tcp"
+    volumes:
+      - opencord-data:/data
+    environment:
+      OPENCORD_PUBLIC_URL: "https://chat.example.com"
+      # OPENCORD_ANNOUNCED_IP: "203.0.113.5"   # public IP for media, if different from the URL's
+      # OPENCORD_TRUST_PROXY: "true"           # behind Caddy/nginx/Traefik
+      # OPENCORD_FEDERATION: "true"            # join the global OpenCord network (default on)
+      # OPENCORD_HELP_HOST: "true"             # help host the network's directory (default on)
+      # OPENCORD_SEEDS: "https://opencord.example.org"
+      # OPENCORD_UPDATE_CHECK: "true"          # "update available" on the admin page
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+
+  # Optional automatic updates: docker compose --profile autoupdate up -d
+  # Checks for a new image every night and restarts OpenCord with it.
+  watchtower:
+    image: containrrr/watchtower:1.7.1
+    profiles: ["autoupdate"]
+    restart: unless-stopped
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    command: --label-enable --cleanup --schedule "0 0 4 * * *"
+
+volumes:
+  opencord-data:

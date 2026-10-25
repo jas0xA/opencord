@@ -52,6 +52,13 @@ export default (ctx: Ctx) => async (app: FastifyInstance) => {
     return { ok: true };
   });
 
+  /* ── updates ── */
+
+  app.get('/admin/updates', async (req) => {
+    const { refresh } = req.query as { refresh?: string };
+    return refresh ? await ctx.updates.check().catch(() => ctx.updates.status) : ctx.updates.status;
+  });
+
   /* ── global network ── */
 
   app.get('/admin/federation', async () => {

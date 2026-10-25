@@ -31,9 +31,10 @@ import themeRoutes from './routes/themes';
 import { Federation } from './federation';
 import { makeInboxHandler } from './federation/relay';
 import { CallBridge } from './federation/callbridge';
+import { UpdateChecker } from './updates';
 import { relationshipHelpers } from './routes/users';
 
-export const VERSION = '0.1.0';
+export const VERSION = process.env.OPENCORD_VERSION ?? '0.1.0';
 
 export interface Ctx {
   config: Config;
@@ -47,6 +48,7 @@ export interface Ctx {
   federation?: Federation;
   /** Bridges DM calls with users on other hosts (present when the federation is). */
   callBridge?: CallBridge;
+  updates: UpdateChecker;
 }
 
 declare module 'fastify' {
@@ -123,7 +125,9 @@ export async function buildApp(config: Config, db: DB, opts: { logger?: boolean;
     sfu,
     files: new FileStore(path.join(config.dataDir, 'uploads')),
     mailer: new Mailer(config),
+    updates: new UpdateChecker(config, VERSION),
   };
+  ctx.updates.start();
   seedMarketplace(db);
 
   if (config.federation.enabled) {
@@ -240,6 +244,7 @@ export async function buildApp(config: Config, db: DB, opts: { logger?: boolean;
   });
 
   app.addHook('onClose', async () => {
+    ctx.updates.stop();
     ctx.federation?.stop();
     ctx.hub.close();
     await ctx.sfu.close();

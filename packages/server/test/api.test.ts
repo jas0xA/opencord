@@ -359,3 +359,12 @@ describe('message reports', () => {
     expect(server.ctx.store.messageRow(msg.body.id)).toBeFalsy();
   });
 });
+
+describe('updates', () => {
+  it('compares versions numerically', async () => {
+    const { newer } = await import('../src/updates');
+    expect(newer('v0.10.0', '0.9.9')).toBe(true);
+    expect(newer('0.1.0', '0.1.0')).toBe(false);
+    expect(newer('0.1.1', '0.2.0')).toBe(false);
+  });
+});

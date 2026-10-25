@@ -125,6 +125,11 @@ android_apk = ""
 android_package = "org.opencord.app"
 android_sha256 = ""
 
+[updates]
+# Check GitHub once every few hours for a newer OpenCord release and show
+# "update available" (with how to update) on the Server Admin page.
+check = true
+
 [embeds]
 # Fetch link previews (OpenGraph) for URLs posted in messages.
 enabled = true
@@ -212,6 +217,7 @@ const ConfigSchema = z.object({
     android_package: z.string().default('org.opencord.app'),
     android_sha256: z.string().default(''),
   }),
+  updates: z.object({ check: z.boolean().default(true) }),
   embeds: z.object({ enabled: z.boolean().default(true), timeout_ms: z.number().default(4000) }),
   connections: z.record(z.object({ client_id: z.string().default(''), client_secret: z.string().default('') })).default({}),
   logging: z.object({ level: z.string().default('warn'), file: z.string().default('') }),
@@ -250,10 +256,21 @@ export function loadConfig(configPath = resolveConfigPath()): Config {
     throw new Error(`Invalid TOML in ${configPath}: ${(e as Error).message}`);
   }
   const merged = deepMerge(defaults, raw);
-  // Environment overrides, handy for containers.
-  if (process.env.OPENCORD_PORT) merged.server.port = Number(process.env.OPENCORD_PORT);
-  if (process.env.OPENCORD_HOST) merged.server.host = process.env.OPENCORD_HOST;
-  if (process.env.OPENCORD_DATA_DIR) merged.storage.data_dir = process.env.OPENCORD_DATA_DIR;
+  // Environment overrides, handy for containers (docker-compose.yml sets these).
+  const env = process.env;
+  const bool = (v: string) => /^(1|true|yes|on)$/i.test(v);
+  if (env.OPENCORD_PORT) merged.server.port = Number(env.OPENCORD_PORT);
+  if (env.OPENCORD_HOST) merged.server.host = env.OPENCORD_HOST;
+  if (env.OPENCORD_PUBLIC_URL) merged.server.public_url = env.OPENCORD_PUBLIC_URL;
+  if (env.OPENCORD_TRUST_PROXY) merged.server.trust_proxy = bool(env.OPENCORD_TRUST_PROXY);
+  if (env.OPENCORD_DATA_DIR) merged.storage.data_dir = env.OPENCORD_DATA_DIR;
+  if (env.OPENCORD_ANNOUNCED_IP) merged.sfu.announced_ip = env.OPENCORD_ANNOUNCED_IP;
+  if (env.OPENCORD_RTC_MIN_PORT) merged.sfu.rtc_min_port = Number(env.OPENCORD_RTC_MIN_PORT);
+  if (env.OPENCORD_RTC_MAX_PORT) merged.sfu.rtc_max_port = Number(env.OPENCORD_RTC_MAX_PORT);
+  if (env.OPENCORD_FEDERATION) merged.federation.enabled = bool(env.OPENCORD_FEDERATION);
+  if (env.OPENCORD_HELP_HOST) merged.federation.help_host = bool(env.OPENCORD_HELP_HOST);
+  if (env.OPENCORD_SEEDS) merged.federation.seeds = env.OPENCORD_SEEDS.split(',').map((x) => x.trim()).filter(Boolean);
+  if (env.OPENCORD_UPDATE_CHECK) merged.updates.check = bool(env.OPENCORD_UPDATE_CHECK);
   const result = ConfigSchema.safeParse(merged);
   if (!result.success) {
     const issues = result.error.issues.map((i) => `  - ${i.path.join('.')}: ${i.message}`).join('\n');

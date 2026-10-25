@@ -41,16 +41,27 @@ npm test                  # server integration tests
 
 | Target | Command | Output |
 |---|---|---|
-| Linux server (self-contained tarball with Node runtime + systemd installer) | `npm run dist:server` | `release/opencord-server-<v>-linux-x64.tar.gz` |
-| Linux client (AppImage) | `npm run dist:client` | `packages/client/release/OpenCord-<v>-x86_64.AppImage` |
+| Linux server (self-contained tarball with Node runtime + systemd installer) | `npm run dist:server` | `release/opencord-server-<v>-linux-<x64\|arm64>.tar.gz` (host architecture) |
+| Linux ARM64 server from an x64 machine | `npm run dist:server:arm64` | `release/opencord-server-<v>-linux-arm64.tar.gz` |
+| Linux client (AppImage) | `npm run dist:client` | `packages/client/release/OpenCord-<v>-<x86_64\|arm64>.AppImage` |
 | Windows server (zip with node.exe) | `scripts\package-server.ps1` on Windows | `release\opencord-server-<v>-win-x64.zip` |
 | Windows client (NSIS installer) | `npm run dist:win -w @opencord/client` on Windows | `packages/client/release/OpenCord-Setup-<v>.exe` |
-| Docker server | `docker build -t opencord-server .` | image |
+| Docker server (amd64 + arm64) | `docker build -t opencord-server .` | image; releases publish `ghcr.io/jas0xa/opencord` |
 | Android app (TWA wrapping a server's web app) | `scripts/build-android.sh https://your.host` | `android-build/OpenCord.apk` |
 
 Server packages include the web app (`web/`).
 
-The GitHub Actions workflow in `.github/workflows/release.yml` builds all of these on tag pushes.
+Pushing a `v*` tag runs `.github/workflows/release.yml`, which builds all of these natively (Linux x64 and arm64, Windows), publishes the multi-arch Docker image as `<version>` and `latest`, and attaches every file to the GitHub Release.
+
+## Running with Docker
+
+```sh
+curl -O https://raw.githubusercontent.com/jas0xA/opencord/main/docker-compose.yml   # set OPENCORD_PUBLIC_URL
+docker compose up -d
+docker compose pull && docker compose up -d   # update later
+```
+
+Works on x86-64 and ARM64. Details in [docs/self-hosting.md](docs/self-hosting.md#docker-x86-64-and-arm64).
 
 ## Documentation
 

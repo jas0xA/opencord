@@ -112,6 +112,7 @@ export function AdminPage() {
         </div>
       )}
 
+      <UpdatePanel />
       <NetworkPanel />
 
       <h3 style={{ marginTop: 32 }}>Message Reports</h3>
@@ -225,6 +226,55 @@ function NetworkPanel() {
           ))}
         </div>
       )}
+    </>
+  );
+}
+
+/** Current vs latest release, with update steps for how this server was installed. */
+function UpdatePanel() {
+  const [u, setU] = useState<{ current: string; latest: string | null; update_available: boolean; url: string | null; checked_at: number | null; install: 'docker' | 'tarball' | 'source' } | null>(null);
+  const [busy, setBusy] = useState(false);
+  useEffect(() => void api.get('/admin/updates').then(setU).catch(() => {}), []);
+  if (!u) return null;
+  const steps = {
+    docker: 'docker compose pull && docker compose up -d',
+    tarball: 'Download the new server package from the release page, extract it over the old folder (keep config.toml and data/), and restart the service.',
+    source: 'git pull && npm ci && restart the server',
+  }[u.install];
+  return (
+    <>
+      <h3 style={{ marginTop: 32 }}>Version</h3>
+      <div className={`info-box${u.update_available ? ' warn' : ''}`}>
+        <div>
+          OpenCord <b>{u.current}</b>
+          {u.update_available ? (
+            <>
+              {' '}· <b>{u.latest}</b> is available{u.url && <> (<a href={u.url} target="_blank" rel="noreferrer">what's new</a>)</>}
+            </>
+          ) : u.latest ? (
+            ' · up to date'
+          ) : (
+            ''
+          )}
+        </div>
+        {u.update_available && (
+          <div style={{ marginTop: 8 }}>
+            To update{u.install === 'docker' ? ', in the folder with docker-compose.yml run' : ''}: <code className="md-code" style={{ userSelect: 'text' }}>{steps}</code>
+          </div>
+        )}
+        <button
+          className="btn sm link"
+          style={{ paddingLeft: 0, marginTop: 4 }}
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            setU(await api.get('/admin/updates?refresh=1').catch(() => u));
+            setBusy(false);
+          }}
+        >
+          {busy ? 'Checking…' : 'Check for updates'}
+        </button>
+      </div>
     </>
   );
 }

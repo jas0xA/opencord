@@ -44,6 +44,7 @@ export async function makeServer(overrides: (c: ReturnType<typeof loadConfig>) =
   const config = loadConfig(path.join(dir, 'config.toml'));
   config.embeds.enabled = false;
   config.federation.enabled = false;
+  config.updates.check = false;
   overrides(config);
   const db = openMemoryDatabase();
   const { app, ctx } = await buildApp(config, db, { logger: false, fetch: opts.fetch });

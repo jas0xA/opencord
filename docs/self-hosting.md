@@ -9,9 +9,11 @@ See also: [accounts & moderation](accounts-and-moderation.md) · [themes](themes
 
 ## Quick start (Linux tarball)
 
+Download the server for your machine from the [releases page](https://github.com/jas0xA/opencord/releases): `linux-x64` for regular PCs and servers, `linux-arm64` for Raspberry Pi 4/5 (64-bit OS) and other ARM64 machines.
+
 ```sh
-tar xzf opencord-server-<version>-linux-x64.tar.gz
-cd opencord-server-<version>-linux-x64
+tar xzf opencord-server-<version>-linux-<arch>.tar.gz
+cd opencord-server-<version>-linux-<arch>
 ./opencord-server            # writes ./config.toml on first run, then starts on port 8443
 ```
 
@@ -30,18 +32,54 @@ sudo systemctl status opencord-server
 sudo journalctl -u opencord-server -f
 ```
 
-### Docker
+### Docker (x86-64 and ARM64)
+
+Every release publishes a multi-architecture image, `ghcr.io/jas0xa/opencord`, for `linux/amd64` and `linux/arm64` (Raspberry Pi 4/5 with a 64-bit OS, Ampere/Graviton servers, Apple Silicon). Docker picks the right one automatically.
 
 ```sh
-docker build -t opencord-server .
-docker run -d --name opencord \
-  -p 8443:8443 -p 40000-40100:40000-40100/udp -p 40000-40100:40000-40100/tcp \
-  -v opencord:/data opencord-server
+curl -O https://raw.githubusercontent.com/jas0xA/opencord/main/docker-compose.yml
+# edit OPENCORD_PUBLIC_URL in docker-compose.yml
+docker compose up -d
 ```
 
-Publish the media port range you configure under `[sfu]` (a small range like the one above is fine for small servers; set `rtc_min_port`/`rtc_max_port` to match).
+Then open the public URL in a browser (or connect from the desktop app). The first account becomes the admin.
 
-The container keeps its config at `/data/config.toml` and its data in `/data`.
+The container keeps `config.toml`, the database, uploads and the host key in the `opencord-data` volume (`/data` inside the container). The environment variables in `docker-compose.yml` override `config.toml`, so most setups never need to edit it:
+
+| Variable | Overrides |
+|---|---|
+| `OPENCORD_PUBLIC_URL` | `server.public_url` |
+| `OPENCORD_TRUST_PROXY` | `server.trust_proxy` |
+| `OPENCORD_ANNOUNCED_IP` | `sfu.announced_ip` |
+| `OPENCORD_RTC_MIN_PORT`, `OPENCORD_RTC_MAX_PORT` | `sfu.rtc_min_port` / `rtc_max_port` (image default `40000`–`40100`, matching the published ports) |
+| `OPENCORD_FEDERATION`, `OPENCORD_HELP_HOST`, `OPENCORD_SEEDS` | `[federation]` (`SEEDS` is comma-separated) |
+| `OPENCORD_UPDATE_CHECK` | `updates.check` |
+| `OPENCORD_PORT`, `OPENCORD_HOST`, `OPENCORD_DATA_DIR` | listen port, address, data directory |
+
+If you widen the media port range, change both the variables and the `ports:` mapping.
+
+#### Updating
+
+```sh
+docker compose pull && docker compose up -d
+```
+
+That's it: data and config live in the volume, and database migrations run automatically on start. The Server Admin page shows when a new version is out (and this command). To roll back or stay on a version, pin the tag, e.g. `image: ghcr.io/jas0xa/opencord:0.1.0`.
+
+**Automatic updates:** start with the `autoupdate` profile and [Watchtower](https://containrrr.dev/watchtower/) checks for a new image every night at 04:00 and restarts OpenCord with it:
+
+```sh
+docker compose --profile autoupdate up -d
+```
+
+#### Other Docker commands
+
+```sh
+docker compose logs -f opencord                                    # logs
+docker compose exec opencord node /app/opencord-server.mjs users   # any admin CLI command
+docker compose exec opencord node /app/opencord-server.mjs backup /data/backup.db
+docker build -t opencord-server .                                  # build the image yourself
+```
 
 ## Connecting
 
@@ -87,6 +125,7 @@ All settings have defaults, so you only need to change what you care about. Sett
 | `web` | `enabled` | `true` | Serve the web app at `/` |
 | | `android_apk` | `""` | APK offered at `/download/android` (path relative to `config.toml`) |
 | | `android_package`, `android_sha256` | | Digital Asset Links for the APK (from `scripts/build-android.sh`) |
+| `updates` | `check` | `true` | Look for new releases and show "update available" on the Server Admin page |
 | `embeds` | `enabled`, `timeout_ms` | on | Link previews; private network addresses are never fetched |
 | `logging` | `level`, `file` | `warn` | |
 
