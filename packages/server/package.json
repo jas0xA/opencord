@@ -30,7 +30,7 @@
     "zod": "^3.24.0"
   },
   "devDependencies": {
-    "@opencord/shared": "0.1.0",
+    "@opencord/shared": "*",
     "@types/better-sqlite3": "^7.6.0",
     "@types/node": "^22.0.0",
     "@types/nodemailer": "^6.4.0",
