@@ -108,7 +108,9 @@ export async function resolveServer(input: string): Promise<{ url: string; info:
       clearTimeout(t);
       if (res.ok) {
         const info = (await res.json()) as InstanceInfo;
-        if (info && typeof info.registration === 'string') return { url, info };
+        // Keep where we ended up: e.g. http://1.2.3.4 redirects to https://1.2.3.4 with automatic HTTPS.
+        const final = res.url ? res.url.slice(0, res.url.length - `${API_PREFIX}/instance`.length) : url;
+        if (info && typeof info.registration === 'string') return { url: res.redirected && final.startsWith('http') ? final : url, info };
       }
     } catch {
       /* try next */

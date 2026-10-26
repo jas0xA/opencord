@@ -54,6 +54,8 @@ The container keeps `config.toml`, the database, uploads and the host key in the
 | `OPENCORD_RTC_MIN_PORT`, `OPENCORD_RTC_MAX_PORT` | `sfu.rtc_min_port` / `rtc_max_port` (image default `40000`–`40100`, matching the published ports) |
 | `OPENCORD_FEDERATION`, `OPENCORD_HELP_HOST`, `OPENCORD_SEEDS` | `[federation]` (`SEEDS` is comma-separated) |
 | `OPENCORD_UPDATE_CHECK` | `updates.check` |
+| `OPENCORD_TLS_AUTO`, `OPENCORD_TLS_EMAIL` | `tls.auto`, `tls.email` ([automatic HTTPS](#automatic-https-works-with-just-an-ip-address)) |
+| `OPENCORD_HTTP_PORT`, `OPENCORD_ACME_DIRECTORY` | `tls.http_port` (image default `8080`), `tls.acme_directory` |
 | `OPENCORD_PORT`, `OPENCORD_HOST`, `OPENCORD_DATA_DIR` | listen port, address, data directory |
 
 If you widen the media port range, change both the variables and the `ports:` mapping.
@@ -99,7 +101,11 @@ All settings have defaults, so you only need to change what you care about. Sett
 | | `port` | `8443` | TCP port |
 | | `public_url` | `""` | External URL, used in emails and links |
 | | `trust_proxy` | `false` | Set to `true` behind nginx/Caddy |
-| `tls` | `enabled`, `cert`, `key` | off | Serve HTTPS directly |
+| `tls` | `auto` | `false` | Get and renew a free Let's Encrypt certificate for `public_url`, a domain **or a bare IP** ([details](#automatic-https-works-with-just-an-ip-address)) |
+| | `email` | `""` | Optional contact for certificate notices |
+| | `http_port` | `80` | Plain-HTTP port for certificate checks and the redirect to HTTPS |
+| | `acme_directory` | Let's Encrypt | ACME server (use `https://acme-staging-v02.api.letsencrypt.org/directory` to test) |
+| | `enabled`, `cert`, `key` | off | Serve HTTPS with your own certificate files |
 | `instance` | `name`, `description` | | Shown on the login screen *(live)* |
 | | `admin_emails` | `[]` | These emails become admins when they register |
 | `registration` | `mode` | `open` | `open`, `invite_only`, `allowlist` or `closed` *(live)* |
@@ -199,7 +205,35 @@ opencord-server backup [file]                # consistent online backup of the d
 
 Add `--config /path/to/config.toml` to any command when the config isn't in the current directory.
 
-## Reverse proxy (recommended for public servers)
+## Automatic HTTPS (works with just an IP address)
+
+OpenCord can get its own certificate from Let's Encrypt and renew it, so you don't need a reverse proxy, and you don't even need a domain. Browsers trust it like any other HTTPS site, so microphone, camera, the home-screen app and the service worker all work.
+
+```toml
+[server]
+port = 443                            # or keep 8443 and forward port 443 to it
+public_url = "https://203.0.113.5"    # your server's public IP (IPv4 or IPv6), or a domain
+
+[tls]
+auto = true
+email = "you@example.com"             # optional
+```
+
+Requirements:
+
+- **Port 80** (TCP) from the internet must reach `http_port`, and **port 443** must reach `[server].port`. Let's Encrypt checks port 80 to confirm you control the address. Open both in your firewall and, on a cloud server (Oracle, AWS, ...), in its security list or security group too.
+- Nothing else (Caddy, nginx, Apache) may be using those ports.
+- The tarball's systemd service already allows binding ports below 1024. Elsewhere, run with `CAP_NET_BIND_SERVICE`, or keep the defaults and forward 80 → `http_port` and 443 → `port`.
+
+On start, the server gets the certificate first (a few seconds), then serves HTTPS. Plain HTTP on port 80 redirects to HTTPS. The certificate and its keys live in `data/tls/`.
+
+**IP addresses** get Let's Encrypt's short-lived certificates, valid for about 6 days. OpenCord renews them in the background about every 2 days, with no restart and no dropped connections. Domain certificates are renewed when a third of their lifetime is left. If renewal fails, the server keeps using the current certificate and retries every hour. If there's no certificate yet, it keeps retrying (after 1, 2, 5, 10 and then every 30 minutes) and logs why, e.g. port 80 not reachable.
+
+With Docker, publish `"443:8443"` and `"80:8080"` and set `OPENCORD_PUBLIC_URL: "https://<your ip>"` and `OPENCORD_TLS_AUTO: "true"` (see the comments in `docker-compose.yml`).
+
+Use `acme_directory = "https://acme-staging-v02.api.letsencrypt.org/directory"` to try it without counting against Let's Encrypt's rate limits. Staging certificates aren't trusted by browsers, so delete `data/tls/cert.pem` and switch back afterwards.
+
+## Reverse proxy
 
 Caddy, with automatic HTTPS:
 

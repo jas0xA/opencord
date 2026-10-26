@@ -22,7 +22,7 @@ On narrow screens the layout switches to a phone layout:
 | Screen share | ✓ (window/screen picker) | ✓ (browser picker) | ✗ (browsers on phones can't capture the screen) |
 | Notifications | ✓ | ✓ while the tab is open | ✓ while the app is open |
 
-> Browsers only allow microphone, camera and screen access on **HTTPS** (or `localhost`). Put the server behind a reverse proxy with a certificate (see [self-hosting](self-hosting.md#reverse-proxy-recommended-for-public-servers)).
+> Browsers only allow microphone, camera and screen access on **HTTPS** (or `localhost`). Turn on [automatic HTTPS](self-hosting.md#automatic-https-works-with-just-an-ip-address) (works with just an IP address) or put the server behind a [reverse proxy](self-hosting.md#reverse-proxy) with a certificate.
 
 ## iPhone / iPad: add to Home Screen
 

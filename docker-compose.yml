@@ -1,7 +1,8 @@
 # OpenCord server with Docker Compose. Works on x86-64 and ARM64 (Raspberry Pi 4/5, Ampere, Apple Silicon).
 #
 #   1. Set OPENCORD_PUBLIC_URL (and OPENCORD_ANNOUNCED_IP if clients can't reach the media ports
-#      at that address) below.
+#      at that address) below. No domain? Use your public IP with automatic HTTPS:
+#      OPENCORD_PUBLIC_URL "https://<your ip>", OPENCORD_TLS_AUTO "true" and the 80/443 ports.
 #   2. docker compose up -d
 #   3. Open the public URL in a browser, or connect from the desktop app. The first account
 #      becomes the admin.
@@ -19,6 +20,9 @@ services:
     restart: unless-stopped
     ports:
       - "8443:8443"                  # web app, API and gateway (put a TLS reverse proxy in front)
+      # Automatic HTTPS (OPENCORD_TLS_AUTO) instead of a reverse proxy: replace the line above with
+      # - "443:8443"                 # HTTPS
+      # - "80:8080"                  # certificate checks + redirect to HTTPS
       - "40000-40100:40000-40100/udp" # voice/video media
       - "40000-40100:40000-40100/tcp"
     volumes:
@@ -26,6 +30,8 @@ services:
     environment:
       OPENCORD_PUBLIC_URL: "https://chat.example.com"
       # OPENCORD_ANNOUNCED_IP: "203.0.113.5"   # public IP for media, if different from the URL's
+      # OPENCORD_TLS_AUTO: "true"              # free Let's Encrypt certificate for the public URL, even a bare IP
+      # OPENCORD_TLS_EMAIL: "you@example.com"  # optional, for certificate notices
       # OPENCORD_TRUST_PROXY: "true"           # behind Caddy/nginx/Traefik
       # OPENCORD_FEDERATION: "true"            # join the global OpenCord network (default on)
       # OPENCORD_HELP_HOST: "true"             # help host the network's directory (default on)

@@ -12,7 +12,7 @@ An open-source, self-hosted chat platform: a desktop **client**, a **web app** f
 - **Themes**: a built-in code editor for CSS + sandboxed scripts, with live preview and a reference of every UI variable and class; share privately, with your host, or globally. See [docs/themes.md](docs/themes.md)
 - **Profiles**: avatars and banners with crop & reposition (animated GIF/APNG/WebP included), display-name styles, pronouns, about me, profile themes, avatar decorations, profile effects, nameplates, connected accounts, notes, custom status
 - **Marketplace**: every cosmetic is free. There's an official catalog, a **Community** tab where users publish their own items, and a **Global** tab with items from the whole network. Items can be private, and creators can block copies.
-- **Self-hosting**: one config file, SQLite, an admin CLI, and registration that can be open, invite-only, allowlist-only (approve specific emails) or closed
+- **Self-hosting**: one config file, SQLite, automatic HTTPS (even with just an IP address, no domain needed), an admin CLI, and registration that can be open, invite-only, allowlist-only (approve specific emails) or closed
 
 > OpenCord is an independent project. It is not affiliated with Discord Inc. and uses its own name, logo and assets.
 

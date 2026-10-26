@@ -1,8 +1,10 @@
 import fs from 'node:fs';
+import https from 'node:https';
 import path from 'node:path';
 import readline from 'node:readline/promises';
 import { defaultUserSettings, passwordProblem, usernameProblem } from '@opencord/shared';
 import { VERSION, buildApp } from './app';
+import { CertManager } from './acme';
 import { loadConfig, watchConfig } from './config';
 import { setTomlValue } from './config-edit';
 import { openDatabase } from './db';
@@ -160,17 +162,38 @@ async function start(config: ReturnType<typeof loadConfig>, db: ReturnType<typeo
       return orig(chunk, ...rest);
     }) as any;
   }
+  // Automatic HTTPS: a certificate must exist before the HTTPS server starts.
+  let certs: CertManager | null = null;
+  if (config.tls.auto) {
+    certs = new CertManager({
+      dataDir: config.dataDir,
+      publicUrl: config.server.public_url,
+      email: config.tls.email,
+      directory: config.tls.acme_directory,
+      httpPort: config.tls.http_port,
+      host: config.server.host,
+    });
+    await certs.listen();
+    await certs.ensure();
+    Object.assign(config.tls, { enabled: true, ...certs.files });
+  }
   const { app } = await buildApp(config, db);
   watchConfig(config);
   await app.listen({ host: config.server.host, port: config.server.port });
+  certs?.startRenewal((files) => {
+    (app.server as unknown as https.Server).setSecureContext({ cert: fs.readFileSync(files.cert), key: fs.readFileSync(files.key) });
+    console.log('[tls] now serving the renewed certificate');
+  });
   const proto = config.tls.enabled ? 'https' : 'http';
   console.log(`\n  OpenCord ${VERSION} — "${config.instance.name}"`);
   console.log(`  Listening on ${proto}://${config.server.host}:${config.server.port}`);
+  if (certs) console.log(`  HTTPS:  automatic certificate for ${certs.identifier.value} (port ${config.tls.http_port} for validation)`);
   console.log(`  Registration: ${config.registration.mode}`);
   console.log(`  Config: ${config.configPath}`);
   console.log(`  Data:   ${config.dataDir}\n`);
 
   const shutdown = async () => {
+    await certs?.close();
     await app.close();
     db.close();
     process.exit(0);

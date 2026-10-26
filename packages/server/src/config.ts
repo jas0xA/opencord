@@ -21,7 +21,16 @@ public_url = ""
 trust_proxy = false
 
 [tls]
-# Serve HTTPS directly. Alternatively terminate TLS in a reverse proxy.
+# Automatic HTTPS: get and renew a free Let's Encrypt certificate for the host in
+# [server].public_url, which can be a domain or just your server's public IP
+# address (e.g. public_url = "https://203.0.113.5"). IP certificates last about
+# 6 days and are renewed automatically. Needs port 80 forwarded to http_port and
+# port 443 to [server].port (or set [server].port = 443).
+auto = false
+email = ""            # optional, for expiry warnings from Let's Encrypt
+http_port = 80        # plain-HTTP port for validation and the redirect to HTTPS
+acme_directory = "https://acme-v02.api.letsencrypt.org/directory"
+# Or serve HTTPS with your own certificate files (or terminate TLS in a reverse proxy).
 enabled = false
 cert = ""
 key = ""
@@ -162,7 +171,15 @@ const ConfigSchema = z.object({
     public_url: z.string().default(''),
     trust_proxy: z.boolean().default(false),
   }),
-  tls: z.object({ enabled: z.boolean().default(false), cert: z.string().default(''), key: z.string().default('') }),
+  tls: z.object({
+    auto: z.boolean().default(false),
+    email: z.string().default(''),
+    http_port: z.number().int().min(1).max(65535).default(80),
+    acme_directory: z.string().url().default('https://acme-v02.api.letsencrypt.org/directory'),
+    enabled: z.boolean().default(false),
+    cert: z.string().default(''),
+    key: z.string().default(''),
+  }),
   instance: z.object({
     name: z.string().default('My OpenCord'),
     description: z.string().default(''),
@@ -280,10 +297,17 @@ export function loadConfig(configPath = resolveConfigPath()): Config {
   if (env.OPENCORD_HELP_HOST) merged.federation.help_host = bool(env.OPENCORD_HELP_HOST);
   if (env.OPENCORD_SEEDS) merged.federation.seeds = env.OPENCORD_SEEDS.split(',').map((x) => x.trim()).filter(Boolean);
   if (env.OPENCORD_UPDATE_CHECK) merged.updates.check = bool(env.OPENCORD_UPDATE_CHECK);
+  if (env.OPENCORD_TLS_AUTO) merged.tls.auto = bool(env.OPENCORD_TLS_AUTO);
+  if (env.OPENCORD_TLS_EMAIL) merged.tls.email = env.OPENCORD_TLS_EMAIL;
+  if (env.OPENCORD_HTTP_PORT) merged.tls.http_port = Number(env.OPENCORD_HTTP_PORT);
+  if (env.OPENCORD_ACME_DIRECTORY) merged.tls.acme_directory = env.OPENCORD_ACME_DIRECTORY;
   const result = ConfigSchema.safeParse(merged);
   if (!result.success) {
     const issues = result.error.issues.map((i) => `  - ${i.path.join('.')}: ${i.message}`).join('\n');
     throw new Error(`Invalid configuration in ${configPath}:\n${issues}`);
+  }
+  if (result.data.tls.auto && !/^https:\/\/[^/]+/.test(result.data.server.public_url)) {
+    throw new Error(`[tls] auto = true needs [server].public_url set to your address, e.g. "https://203.0.113.5" or "https://chat.example.com" (${configPath})`);
   }
   const dataDir = path.resolve(path.dirname(configPath), result.data.storage.data_dir);
   return { ...result.data, configPath, dataDir };
