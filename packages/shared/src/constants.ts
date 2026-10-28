@@ -125,5 +125,6 @@ export function defaultUserSettings(): import('./types').UserSettings {
     guild_positions: [],
     custom_status: null,
     status: 'online',
+    user_overrides: {},
   };
 }

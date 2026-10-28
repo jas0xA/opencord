@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { Phone, Video, Pin, UserPlus, Users, CircleUserRound, Search, X, Bell } from 'lucide-react';
-import { ChannelType, Permissions, type Channel, type Message } from '@opencord/shared';
+import { Phone, Video, Pin, UserPlus, Users, CircleUserRound, Search, X, Bell, EyeOff } from 'lucide-react';
+import { ChannelType, Permissions, RelationshipType, type Channel, type Message } from '@opencord/shared';
 import { api, cdn } from '../lib/api';
 import {
   ackChannel, can, displayName, findChannel, loadMessages, navigate, openDm, openModal, statusOf, toast, useStore,
@@ -68,6 +68,17 @@ function MessageList({ channel }: { channel: Channel }) {
   const canManage = useStore(() => (channel.guild_id ? can(Permissions.MANAGE_MESSAGES, channel.guild_id, channel.id) : false));
   const readState = useStore((s) => s.readStates[channel.id]);
   const [unreadMarker, setUnreadMarker] = useState<string | null>(null);
+  // Messages from blocked or muted users collapse into a "Show" row; this holds the runs opened.
+  const myId = useStore((s) => s.me?.id);
+  const relationships = useStore((s) => s.relationships);
+  const overrides = useStore((s) => s.me?.settings.user_overrides);
+  const [revealed, setRevealed] = useState<Set<string>>(() => new Set());
+  const toggleRun = (key: string) =>
+    setRevealed((cur) => {
+      const next = new Set(cur);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
 
   useEffect(() => {
     stick.current = true;
@@ -125,11 +136,42 @@ function MessageList({ channel }: { channel: Channel }) {
   const list = cm?.list ?? [];
   const items: React.ReactNode[] = [];
   let prev: Message | null = null;
+  const blockedAuthor = (m: Message) => relationships[m.author.id]?.type === RelationshipType.BLOCKED;
+  const hidden = (m: Message) => m.author.id !== myId && !m.webhook_id && (blockedAuthor(m) || !!overrides?.[m.author.id]?.mute_messages);
+  let run: { key: string; slot: number; count: number; blocked: boolean } | null = null;
+  const closeRun = () => {
+    if (!run) return;
+    const { key, count, blocked } = run;
+    const open = revealed.has(key);
+    items[run.slot] = (
+      <div key={`h-${key}`} className="hidden-run">
+        <EyeOff size={16} />
+        <span>
+          {count} {count === 1 ? 'message' : 'messages'} from {blocked ? 'a blocked user' : 'a muted user'}
+        </span>
+        <button className="btn link sm" onClick={() => toggleRun(key)}>{open ? 'Hide' : 'Show'}</button>
+      </div>
+    );
+    run = null;
+  };
   for (const m of list) {
     if (!prev || !isSameDay(prev.created_at, m.created_at)) {
+      closeRun();
       items.push(<div key={`d-${m.id}`} className="day-divider"><span>{formatDay(m.created_at)}</span></div>);
       prev = null;
     }
+    if (hidden(m)) {
+      if (!run) {
+        run = { key: m.id, slot: items.length, count: 0, blocked: false };
+        items.push(null);
+      }
+      run.count++;
+      run.blocked ||= blockedAuthor(m);
+      if (!revealed.has(run.key)) {
+        prev = null;
+        continue;
+      }
+    } else closeRun();
     if (unreadMarker && prev && BigInt(prev.id) <= BigInt(unreadMarker) && BigInt(m.id) > BigInt(unreadMarker) && !m.id.startsWith('pending')) {
       items.push(<div key={`u-${m.id}`} className="day-divider unread-divider"><span>NEW</span></div>);
     }
@@ -138,6 +180,7 @@ function MessageList({ channel }: { channel: Channel }) {
     items.push(<MessageItem key={m.nonce && m.id.startsWith('pending') ? m.nonce : m.id} m={m} grouped={grouped} canManage={canManage} />);
     prev = m;
   }
+  closeRun();
 
   return (
     <div className="messages scroller" ref={scrollRef} onScroll={onScroll}>

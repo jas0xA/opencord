@@ -3216,3 +3216,42 @@
 .mobile-nav-backdrop {
   display: none;
 }
+
+/* Messages from blocked or muted users, collapsed until shown. */
+.hidden-run {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 4px 16px;
+  padding: 6px 10px;
+  border-radius: var(--radius);
+  background: var(--bg-card);
+  color: var(--text-muted);
+  font-size: 14px;
+}
+.hidden-run span {
+  flex: 1;
+}
+
+/* Per-user volume slider inside context menus. */
+.cm-custom {
+  padding: 6px 8px;
+}
+.user-volume .uv-label {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  margin-bottom: 6px;
+}
+.user-volume .uv-value {
+  text-transform: none;
+  font-weight: 600;
+  color: var(--text-normal);
+}
+.user-volume input[type='range'] {
+  width: 100%;
+  accent-color: var(--brand);
+}

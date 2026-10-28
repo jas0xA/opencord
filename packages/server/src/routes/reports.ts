@@ -1,6 +1,6 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
-import { Permissions as P } from '@opencord/shared';
+import { Permissions as P, hasPermission } from '@opencord/shared';
 import { authenticate, parse, type Ctx } from '../app';
 import { forbidden, json, notFound } from '../util';
 
@@ -38,12 +38,9 @@ export default (ctx: Ctx) => async (app: FastifyInstance) => {
   function canModerate(r: any, userId: string) {
     if (isAdmin(userId)) return true;
     if (!r.guild_id || !store.isMember(r.guild_id, userId)) return false;
-    try {
-      store.requireGuildPerm(r.guild_id, userId, P.MANAGE_MESSAGES);
-      return true;
-    } catch {
-      return false;
-    }
+    // Judged in the reported channel, so a private channel's reports stay with those who can see it.
+    if (!store.channelRow(r.channel_id)) return hasPermission(store.guildPermissions(r.guild_id, userId), P.MANAGE_MESSAGES);
+    return hasPermission(store.channelPermissions(r.channel_id, userId), P.VIEW_CHANNEL | P.MANAGE_MESSAGES);
   }
 
   app.get('/guilds/:id/reports', async (req) => {
@@ -52,7 +49,7 @@ export default (ctx: Ctx) => async (app: FastifyInstance) => {
     if (!store.isMember(id, req.userId)) throw notFound('Guild');
     store.requireGuildPerm(id, req.userId, P.MANAGE_MESSAGES);
     const rows = db.prepare('SELECT * FROM message_reports WHERE guild_id = ? AND status = ? ORDER BY created_at DESC LIMIT 200').all(id, status);
-    return rows.map(serialize);
+    return rows.filter((r) => canModerate(r, req.userId)).map(serialize);
   });
 
   app.get('/admin/reports', async (req) => {
@@ -72,6 +69,8 @@ export default (ctx: Ctx) => async (app: FastifyInstance) => {
       if (msg) {
         for (const a of json<{ url: string }[]>(msg.attachments, [])) ctx.files.remove(a.url.replace(/^\/uploads\//, ''));
         db.prepare('DELETE FROM messages WHERE id = ?').run(r.message_id);
+        const last = db.prepare('SELECT id FROM messages WHERE channel_id = ? ORDER BY CAST(id AS INTEGER) DESC LIMIT 1').get(r.channel_id) as { id: string } | undefined;
+        db.prepare('UPDATE channels SET last_message_id = ? WHERE id = ?').run(last?.id ?? null, r.channel_id);
         if (r.guild_id) store.audit(r.guild_id, req.userId, 'MESSAGE_DELETE', msg.author_id, [{ key: 'channel_id', new: r.channel_id }]);
         hub.toChannel(r.channel_id, 'MESSAGE_DELETE', { id: r.message_id, channel_id: r.channel_id, guild_id: r.guild_id });
       }

@@ -54,6 +54,11 @@ interface RemoteConsumer {
   streamType: StreamType;
   stream: MediaStream;
   el?: HTMLAudioElement;
+  /** Web Audio path for this audio: per-user volume up to 200% (element volume caps at 100%, and is read-only on iOS). */
+  source?: MediaStreamAudioSourceNode;
+  gain?: GainNode;
+  /** Output device the element is currently routed to (element path only). */
+  sink?: string;
 }
 
 class VoiceManager {
@@ -72,7 +77,7 @@ class VoiceManager {
   private sendTransport: mst.Transport | null = null;
   private recvTransport: mst.Transport | null = null;
   private consumers = new Map<string, RemoteConsumer>();
-  private volumes = new Map<string, number>();
+  private ctxSink: string | null = null;
   private speaking = new Set<string>();
   private listeners = new Set<() => void>();
   private snapshot: VoiceSnapshot = this.build();
@@ -180,7 +185,6 @@ class VoiceManager {
     this.guildId = null;
     this.speaking.clear();
     this.analysers.clear();
-    this.volumes.clear();
     if (this.vadTimer) clearInterval(this.vadTimer);
     if (this.statsTimer) clearInterval(this.statsTimer);
     this.vadTimer = this.statsTimer = null;
@@ -367,13 +371,25 @@ class VoiceManager {
     this.consumers.set(consumer.id, entry);
 
     if (kind === 'audio') {
+      // The element must stay attached even on the Web Audio path: Chrome only plays a remote
+      // WebRTC track through Web Audio while some media element holds it.
       const el = new Audio();
       el.autoplay = true;
       el.srcObject = stream;
-      const out = this.settings().output_device;
-      if (out !== 'default' && 'setSinkId' in el) (el as any).setSinkId(out).catch(() => {});
       entry.el = el;
-      this.applyDeafen();
+      const ctx = this.playbackContext();
+      if (ctx) {
+        try {
+          entry.source = ctx.createMediaStreamSource(stream);
+          entry.gain = ctx.createGain();
+          entry.source.connect(entry.gain).connect(ctx.destination);
+          el.muted = true;
+          void ctx.resume().catch(() => {});
+        } catch {
+          entry.source = entry.gain = undefined;
+        }
+      }
+      this.applyVolumes();
       if (entry.streamType !== 'screen') this.watchSpeaking(userId, stream);
     } else if (kind === 'video') {
       consumer.track.onended = () => this.closeConsumer(consumer.id);
@@ -393,6 +409,12 @@ class VoiceManager {
       /* ignore */
     }
     c.el?.pause();
+    try {
+      c.source?.disconnect();
+      c.gain?.disconnect();
+    } catch {
+      /* already disconnected */
+    }
     if (c.kind === 'audio' && c.streamType === 'mic') {
       this.analysers.delete(c.userId);
       this.speaking.delete(c.userId);
@@ -405,7 +427,7 @@ class VoiceManager {
   toggleMute() {
     if (this.deafened && this.muted) {
       this.deafened = false;
-      this.applyDeafen();
+      this.applyVolumes();
     }
     this.muted = !this.muted;
     playSound(this.muted ? 'mute' : 'unmute');
@@ -420,7 +442,7 @@ class VoiceManager {
     else if (this.muted) this.muted = false;
     playSound(this.deafened ? 'deafen' : 'undeafen');
     this.applyMicState();
-    this.applyDeafen();
+    this.applyVolumes();
     if (this.channelId) sendGateway(GatewayOp.VOICE_STATE_UPDATE, this.statePayload());
     this.emit();
   }
@@ -430,10 +452,6 @@ class VoiceManager {
     this.applyMicState();
   }
 
-  setUserVolume(userId: string, volume: number) {
-    this.volumes.set(userId, volume);
-    this.applyDeafen();
-  }
 
   private applyMicState() {
     const serverMuted = this.channelId ? useStore.getState().voiceStates[this.me?.id ?? '']?.mute : false;
@@ -442,12 +460,41 @@ class VoiceManager {
     this.mic?.getAudioTracks().forEach((t) => (t.enabled = enabled));
   }
 
-  private applyDeafen() {
-    const out = (this.settings()?.output_volume ?? 100) / 100;
+  /**
+   * The Web Audio context remote voices play through, or null to fall back to plain elements
+   * (no Web Audio, or a chosen output device this browser can't route a context to).
+   */
+  private playbackContext(): AudioContext | null {
+    if (typeof AudioContext === 'undefined') return null;
+    const out = this.settings()?.output_device ?? 'default';
+    if (out !== 'default' && !('setSinkId' in AudioContext.prototype)) return null;
+    return this.ctx();
+  }
+
+  /** Applies deafen, output volume, the output device and each user's volume / voice mute. */
+  applyVolumes() {
+    if (!this.me) return;
+    const st = this.settings();
+    const master = (st.output_volume ?? 100) / 100;
+    const out = st.output_device ?? 'default';
+    const sinkId = out === 'default' ? '' : out;
+    if (this.audioCtx && 'setSinkId' in this.audioCtx && this.ctxSink !== out) {
+      this.ctxSink = out;
+      (this.audioCtx as any).setSinkId(sinkId).catch(() => {});
+    }
     for (const c of this.consumers.values()) {
-      if (c.el) {
-        c.el.muted = this.deafened;
-        c.el.volume = Math.min(1, out * (this.volumes.get(c.userId) ?? 1));
+      if (c.kind !== 'audio' || !c.el) continue;
+      const o = st.user_overrides?.[c.userId] ?? {};
+      const level = this.deafened || o.mute_voice ? 0 : master * ((o.volume ?? 100) / 100);
+      if (c.gain) {
+        c.gain.gain.value = level;
+      } else {
+        c.el.muted = level === 0;
+        c.el.volume = Math.min(1, level);
+        if (c.sink !== out && 'setSinkId' in c.el) {
+          c.sink = out;
+          (c.el as any).setSinkId(sinkId).catch(() => {});
+        }
       }
     }
   }

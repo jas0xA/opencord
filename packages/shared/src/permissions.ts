@@ -101,17 +101,19 @@ export function applyOverwrites(opts: {
 }): bigint {
   const { base, guildId, userId, roleIds, overwrites } = opts;
   if ((base & Permissions.ADMINISTRATOR) === Permissions.ADMINISTRATOR) return ALL_PERMISSIONS;
+  // Administrator is a role-level permission: an overwrite can never grant it.
+  const grant = (o: PermissionOverwrite) => BigInt(o.allow) & ~Permissions.ADMINISTRATOR;
   let perms = base;
   const everyone = overwrites.find((o) => o.type === 0 && o.id === guildId);
   if (everyone) {
     perms &= ~BigInt(everyone.deny);
-    perms |= BigInt(everyone.allow);
+    perms |= grant(everyone);
   }
   let allow = 0n;
   let deny = 0n;
   for (const o of overwrites) {
     if (o.type === 0 && o.id !== guildId && roleIds.includes(o.id)) {
-      allow |= BigInt(o.allow);
+      allow |= grant(o);
       deny |= BigInt(o.deny);
     }
   }
@@ -120,7 +122,7 @@ export function applyOverwrites(opts: {
   const member = overwrites.find((o) => o.type === 1 && o.id === userId);
   if (member) {
     perms &= ~BigInt(member.deny);
-    perms |= BigInt(member.allow);
+    perms |= grant(member);
   }
   // Without VIEW_CHANNEL nothing else in the channel applies.
   if ((perms & Permissions.VIEW_CHANNEL) === 0n) return 0n;

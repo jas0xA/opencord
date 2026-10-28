@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
-import { Mic, MicOff, Monitor, Phone, PhoneOff, Video, VideoOff, Headphones, HeadphoneOff, Maximize2 } from 'lucide-react';
+import { Mic, MicOff, Monitor, Phone, PhoneOff, Video, VideoOff, Headphones, HeadphoneOff, Maximize2, VolumeX } from 'lucide-react';
 import { ChannelType, type Channel, type UserSettings } from '@opencord/shared';
 import { api } from '../lib/api';
 import { closeModal, displayName, getUser, openDm, openModal, updateSettings, useStore } from '../lib/store';
 import { streamBitrate, voice } from '../lib/voice';
 import { Avatar } from './Avatar';
-import { Tooltip } from './Layers';
+import { openContextMenu, Tooltip } from './Layers';
+import { userControlItems } from './UserControls';
 
 export function useVoice() {
   return useSyncExternalStore(voice.subscribe, voice.getSnapshot);
@@ -81,12 +82,22 @@ export function CallTiles({ channelId, guildId, full }: { channelId: string; gui
     const isMe = v.user_id === me?.id;
     const speaking = snap.speaking.has(v.user_id);
     const name = displayName(user, guildId);
+    const mutedByMe = !isMe && !!me?.settings.user_overrides?.[v.user_id]?.mute_voice;
+    // Right-click / long-press a person for their volume, mute and block.
+    const menu = isMe
+      ? undefined
+      : (e: React.MouseEvent) =>
+          openContextMenu(e, [
+            { label: 'Profile', onClick: () => openModal({ type: 'profile', userId: v.user_id, guildId: guildId ?? undefined }) },
+            ...userControlItems(v.user_id),
+          ]);
     if (video) {
       return (
-        <div key={key} className={`call-tile${speaking ? ' speaking' : ''}`}>
+        <div key={key} className={`call-tile${speaking ? ' speaking' : ''}`} onContextMenu={menu}>
           <VideoEl stream={video.stream} mirror={isMe && video.kind === 'camera'} />
           <div className="ct-name">
             {(v.self_mute || v.mute) && <MicOff size={14} />}
+            {mutedByMe && <VolumeX size={14} />}
             {name}
             {video.kind === 'screen' && ' (screen)'}
           </div>
@@ -95,7 +106,7 @@ export function CallTiles({ channelId, guildId, full }: { channelId: string; gui
     }
     const badge = Math.max(18, Math.round(avatarSize * 0.3));
     return (
-      <div key={key} className={`call-tile${panels ? '' : ' avatar-only'}${speaking && panels ? ' speaking' : ''}`}>
+      <div key={key} className={`call-tile${panels ? '' : ' avatar-only'}${speaking && panels ? ' speaking' : ''}`} onContextMenu={menu}>
         <div className="ct-avatar">
           <Avatar user={user} size={avatarSize} speaking={speaking} decoration={false} />
           {(v.self_mute || v.mute || v.self_deaf) && (
@@ -104,7 +115,10 @@ export function CallTiles({ channelId, guildId, full }: { channelId: string; gui
             </div>
           )}
         </div>
-        <div className="ct-name">{name}</div>
+        <div className="ct-name">
+          {mutedByMe && <VolumeX size={14} style={{ verticalAlign: -2, marginRight: 4 }} />}
+          {name}
+        </div>
       </div>
     );
   });

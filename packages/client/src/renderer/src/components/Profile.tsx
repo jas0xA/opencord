@@ -11,6 +11,7 @@ import { ProfileEffect, StyledName, useBannerStyle } from './Cosmetics';
 import { GuildIcon } from './GuildRail';
 import { BadgeIcon } from './Icons';
 import { closeLayers, openContextMenu, Tooltip } from './Layers';
+import { userControlItems } from './UserControls';
 import { openExternal } from '../lib/web';
 
 interface ProfileData {
@@ -92,9 +93,7 @@ function RelationshipButtons({ user }: { user: PublicUser }) {
   const more = (e: React.MouseEvent) =>
     openContextMenu(e, [
       rel?.type === RelationshipType.FRIEND && { label: 'Remove Friend', danger: true, onClick: () => api.del(`/users/@me/relationships/${user.id}`) },
-      rel?.type === RelationshipType.BLOCKED
-        ? { label: 'Unblock', onClick: () => api.del(`/users/@me/relationships/${user.id}`) }
-        : { label: 'Block', danger: true, onClick: () => api.put(`/users/@me/relationships/${user.id}`, { type: 2 }) },
+      ...userControlItems(user.id),
       { separator: true },
       { label: 'Copy Username', onClick: () => copy(user.username) },
       useStore.getState().me?.settings.developer_mode && { label: 'Copy User ID', onClick: () => copy(user.id) },

@@ -16,6 +16,7 @@ import { Avatar } from './Avatar';
 import { Nameplate, StyledName } from './Cosmetics';
 import { AnnouncementIcon, FriendsIcon, HashIcon, SpeakerIcon } from './Icons';
 import { closeLayers, openContextMenu, openPopout, Tooltip } from './Layers';
+import { userControlItems } from './UserControls';
 import { UserPopout } from './Profile';
 import { Soundboard } from './Pickers';
 import { useVoice } from './Voice';
@@ -61,6 +62,7 @@ function DmItem({ channel }: { channel: Channel }) {
       !isGroup && other && { label: 'Profile', onClick: () => openModal({ type: 'profile', userId: other.id }) },
       !isGroup && other && { label: 'Call', onClick: () => (openDm(channel.id), voice.join(channel.id, null)) },
       isGroup && { label: 'Change Icon / Name', onClick: () => openModal({ type: 'channel-settings', channelId: channel.id }) },
+      ...(!isGroup && other ? userControlItems(other.id) : []),
       { separator: true },
       { label: isGroup ? 'Leave Group' : 'Close DM', danger: isGroup, onClick: () => close(e) },
       me?.settings.developer_mode && { label: 'Copy Channel ID', onClick: () => copy(channel.id) },
@@ -302,7 +304,6 @@ export function memberMenu(e: React.MouseEvent, guild: GuildFull, userId: string
       label: self ? 'Edit Server Profile' : 'Change Nickname',
       onClick: () => openModal({ type: 'nickname', guildId: guild.id, userId }),
     },
-    inVoice && !self && { label: 'User Volume…', onClick: () => voice.setUserVolume(userId, 1) },
     inVoice && can(Permissions.MUTE_MEMBERS, guild.id) && { label: v.mute ? 'Server Unmute' : 'Server Mute', onClick: () => api.patch(`/guilds/${guild.id}/members/${userId}`, { mute: !v.mute }) },
     inVoice && can(Permissions.DEAFEN_MEMBERS, guild.id) && { label: v.deaf ? 'Server Undeafen' : 'Server Deafen', onClick: () => api.patch(`/guilds/${guild.id}/members/${userId}`, { deaf: !v.deaf }) },
     inVoice && can(Permissions.MOVE_MEMBERS, guild.id) && !self && { label: 'Disconnect', danger: true, onClick: () => api.patch(`/guilds/${guild.id}/members/${userId}`, { channel_id: null }) },
@@ -315,6 +316,8 @@ export function memberMenu(e: React.MouseEvent, guild: GuildFull, userId: string
     above && can(Permissions.BAN_MEMBERS, guild.id) && { label: `Ban ${displayName(member?.user, guild.id)}`, danger: true, onClick: () => openModal({ type: 'moderate', action: 'ban', guildId: guild.id, userId }) },
     { separator: true },
     can(Permissions.MANAGE_ROLES, guild.id) && { label: 'Roles…', onClick: () => openModal({ type: 'profile', userId, guildId: guild.id }) },
+    ...userControlItems(userId),
+    me.settings.developer_mode && { separator: true },
     me.settings.developer_mode && { label: 'Copy User ID', onClick: () => copy(userId) },
   ]);
 }

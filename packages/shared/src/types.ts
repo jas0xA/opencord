@@ -76,6 +76,17 @@ export interface UserSettings {
   guild_positions: Snowflake[];
   custom_status: { text: string; emoji: string | null; expires_at: number | null } | null;
   status: PresenceStatus;
+  /** Per-user choices that only affect what you see and hear, keyed by user id. */
+  user_overrides: Record<Snowflake, UserOverride>;
+}
+
+export interface UserOverride {
+  /** How loud you hear them in calls and voice channels, in percent (0-200, default 100). */
+  volume?: number;
+  /** You don't hear them at all in calls and voice channels. */
+  mute_voice?: boolean;
+  /** Their messages are collapsed and never notify you. */
+  mute_messages?: boolean;
 }
 
 export interface SelfUser extends PublicUser {
@@ -372,6 +383,8 @@ export interface VoiceState {
   self_stream: boolean;
   mute: boolean;
   deaf: boolean;
+  /** Set on a state sent only to you when the server refused to let you join this channel (e.g. a block). */
+  refused_channel_id?: Snowflake;
 }
 
 export interface ReadState {

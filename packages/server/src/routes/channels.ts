@@ -36,6 +36,27 @@ export default (ctx: Ctx) => async (app: FastifyInstance) => {
     if (!row || !hasPermission(store.channelPermissions(id, userId), P.VIEW_CHANNEL)) throw notFound('Channel');
     return row;
   };
+  /**
+   * Only permissions you hold in a channel can be granted or denied there (as in role editing).
+   * Compares against the current overwrites, so re-saving someone else's untouched bits still works.
+   */
+  const checkOverwriteChange = (channelId: string, userId: string, before: any[], after: { id: string; allow: string; deny: string }[]) => {
+    const mine = store.channelPermissions(channelId, userId);
+    if ((mine & P.ADMINISTRATOR) === P.ADMINISTRATOR) return;
+    const bits = (o?: { allow: string; deny: string }) => ({ allow: BigInt(o?.allow ?? '0'), deny: BigInt(o?.deny ?? '0') });
+    const ids = new Set([...before.map((o) => o.id), ...after.map((o) => o.id)]);
+    for (const oid of ids) {
+      const a = bits(before.find((o) => o.id === oid));
+      const b = bits(after.find((o) => o.id === oid));
+      const changed = (a.allow ^ b.allow) | (a.deny ^ b.deny);
+      if (changed & ~mine) throw forbidden("You can't change permissions you don't have yourself.");
+    }
+  };
+  const checkParent = (guildId: string, parentId: string | null | undefined, selfId?: string) => {
+    if (!parentId) return;
+    const parent = store.channelRow(parentId);
+    if (!parent || parent.guild_id !== guildId || parent.type !== ChannelType.GUILD_CATEGORY || parent.id === selfId) throw badRequest('Invalid category');
+  };
   const broadcastChannel = (row: any) => {
     const ch = store.channel(store.channelRow(row.id));
     if (row.guild_id) hub.toGuild(row.guild_id, 'CHANNEL_UPDATE', ch);
@@ -63,7 +84,14 @@ export default (ctx: Ctx) => async (app: FastifyInstance) => {
     if (!row.guild_id) throw forbidden();
     store.requireChannelPerm(id, req.userId, P.MANAGE_CHANNELS);
     const body = parse(channelCreateSchema.partial(), req.body);
-    if (body.permission_overwrites !== undefined) store.requireChannelPerm(id, req.userId, P.MANAGE_ROLES);
+    if (body.permission_overwrites !== undefined) {
+      store.requireChannelPerm(id, req.userId, P.MANAGE_ROLES);
+      checkOverwriteChange(id, req.userId, json<any[]>(row.overwrites, []), body.permission_overwrites as any[]);
+    }
+    if (body.parent_id !== undefined) {
+      if (row.type === ChannelType.GUILD_CATEGORY && body.parent_id) throw badRequest('Categories cannot be nested');
+      checkParent(row.guild_id, body.parent_id, id);
+    }
     const sets: Record<string, unknown> = {};
     const changes: any[] = [];
     for (const [k, v] of Object.entries(body)) {
@@ -113,8 +141,10 @@ export default (ctx: Ctx) => async (app: FastifyInstance) => {
     if (!row.guild_id) throw forbidden();
     store.requireChannelPerm(id, req.userId, P.MANAGE_ROLES);
     const body = parse(z.object({ type: z.union([z.literal(0), z.literal(1)]), allow: z.string().regex(/^\d+$/), deny: z.string().regex(/^\d+$/) }), req.body);
-    const ow = json<any[]>(row.overwrites, []).filter((o) => o.id !== oid);
+    const before = json<any[]>(row.overwrites, []);
+    const ow = before.filter((o) => o.id !== oid);
     ow.push({ id: oid, ...body });
+    checkOverwriteChange(id, req.userId, before, ow);
     db.prepare('UPDATE channels SET overwrites = ? WHERE id = ?').run(JSON.stringify(ow), id);
     store.audit(row.guild_id, req.userId, 'CHANNEL_OVERWRITE_UPDATE', id, [{ key: oid, new: body }]);
     return broadcastChannel(row);
@@ -125,7 +155,9 @@ export default (ctx: Ctx) => async (app: FastifyInstance) => {
     const row = channelOr404(id, req.userId);
     if (!row.guild_id) throw forbidden();
     store.requireChannelPerm(id, req.userId, P.MANAGE_ROLES);
-    const ow = json<any[]>(row.overwrites, []).filter((o) => o.id !== oid);
+    const before = json<any[]>(row.overwrites, []);
+    const ow = before.filter((o) => o.id !== oid);
+    checkOverwriteChange(id, req.userId, before, ow);
     db.prepare('UPDATE channels SET overwrites = ? WHERE id = ?').run(JSON.stringify(ow), id);
     return broadcastChannel(row);
   });
@@ -426,7 +458,24 @@ export default (ctx: Ctx) => async (app: FastifyInstance) => {
       const roleMembers = mentionRoles.length
         ? (db.prepare(`SELECT user_id FROM member_roles WHERE role_id IN (${mentionRoles.map(() => '?').join(',')})`).all(...mentionRoles) as any[]).map((r) => r.user_id)
         : [];
-      notify = [...new Set([...mentions, ...all, ...roleMembers])].filter((u) => u !== req.userId && (viewers.has(u) || store.isMember(row.guild_id, u)));
+      notify = [...new Set([...mentions, ...all, ...roleMembers])].filter(
+        (u) => u !== req.userId && (viewers.has(u) || hasPermission(store.channelPermissions(id, u), P.VIEW_CHANNEL)),
+      );
+    }
+    // No unread badges from people you've blocked or whose messages you've muted.
+    if (notify.length) {
+      const silenced = new Set(
+        (db.prepare('SELECT user_id FROM relationships WHERE other_id = ? AND type = 2').all(req.userId) as { user_id: string }[]).map((r) => r.user_id),
+      );
+      const mutedPath = `$.user_overrides."${req.userId}".mute_messages`;
+      for (let i = 0; i < notify.length; i += 500) {
+        const chunk = notify.slice(i, i + 500);
+        for (const r of db
+          .prepare(`SELECT id FROM users WHERE id IN (${chunk.map(() => '?').join(',')}) AND json_extract(settings, ?) = 1`)
+          .all(...chunk, mutedPath) as { id: string }[])
+          silenced.add(r.id);
+      }
+      notify = notify.filter((u) => !silenced.has(u));
     }
     const bump = db.prepare(
       `INSERT INTO read_states (user_id, channel_id, last_message_id, mention_count) VALUES (?,?,NULL,1)
@@ -460,7 +509,8 @@ export default (ctx: Ctx) => async (app: FastifyInstance) => {
     const msg = store.messageRow(mid);
     if (!msg || msg.channel_id === undefined || msg.channel_id !== id) throw notFound('Message');
     if (msg.author_id !== req.userId) throw forbidden('You can only edit your own messages');
-    const { content } = parse(z.object({ content: z.string().min(1).max(config.limits.max_message_length) }), req.body);
+    if (msg.type !== MessageType.DEFAULT && msg.type !== MessageType.REPLY) throw badRequest('This message cannot be edited');
+    const { content } = parse(z.object({ content: z.string().trim().min(1).max(config.limits.max_message_length) }), req.body);
     if (row.guild_id) {
       const blocked = runAutoMod(row, req.userId, content, 0);
       if (blocked) throw new ApiError(400, blocked, 200000);
@@ -484,15 +534,18 @@ export default (ctx: Ctx) => async (app: FastifyInstance) => {
     return store.message(store.messageRow(mid), req.userId);
   });
 
-  function deleteMessages(row: any, ids: string[]) {
-    for (const mid of ids) {
-      const m = store.messageRow(mid);
-      for (const a of json<Attachment[]>(m?.attachments, [])) files.remove(a.url.replace(/^\/uploads\//, ''));
+  /** Deletes messages of this channel (ids from elsewhere are ignored) and returns the ids deleted. */
+  function deleteMessages(row: any, ids: string[]): string[] {
+    const mine = ids.map((mid) => store.messageRow(mid)).filter((m) => m?.channel_id === row.id);
+    for (const m of mine) {
+      for (const a of json<Attachment[]>(m.attachments, [])) files.remove(a.url.replace(/^\/uploads\//, ''));
     }
+    ids = mine.map((m) => m.id);
     const del = db.prepare('DELETE FROM messages WHERE id = ? AND channel_id = ?');
     db.transaction(() => ids.forEach((mid) => del.run(mid, row.id)))();
     const last = db.prepare('SELECT id FROM messages WHERE channel_id = ? ORDER BY CAST(id AS INTEGER) DESC LIMIT 1').get(row.id) as any;
     db.prepare('UPDATE channels SET last_message_id = ? WHERE id = ?').run(last?.id ?? null, row.id);
+    return ids;
   }
 
   app.delete('/channels/:id/messages/:mid', { preHandler: auth }, async (req) => {
@@ -539,9 +592,9 @@ export default (ctx: Ctx) => async (app: FastifyInstance) => {
     if (!row.guild_id) throw forbidden();
     store.requireChannelPerm(id, req.userId, P.MANAGE_MESSAGES);
     const { messages } = parse(z.object({ messages: z.array(z.string()).min(1).max(100) }), req.body);
-    deleteMessages(row, messages);
-    store.audit(row.guild_id, req.userId, 'MESSAGE_BULK_DELETE', id, [{ key: 'count', new: messages.length }]);
-    hub.toChannel(id, 'MESSAGE_DELETE_BULK', { ids: messages, channel_id: id, guild_id: row.guild_id });
+    const deleted = deleteMessages(row, messages);
+    store.audit(row.guild_id, req.userId, 'MESSAGE_BULK_DELETE', id, [{ key: 'count', new: deleted.length }]);
+    if (deleted.length) hub.toChannel(id, 'MESSAGE_DELETE_BULK', { ids: deleted, channel_id: id, guild_id: row.guild_id });
     return { ok: true };
   });
 
@@ -619,6 +672,7 @@ export default (ctx: Ctx) => async (app: FastifyInstance) => {
     const { id, mid, emoji } = req.params as { id: string; mid: string; emoji: string; uid: string };
     let { uid } = req.params as { uid: string };
     channelOr404(id, req.userId);
+    if (store.messageRow(mid)?.channel_id !== id) throw notFound('Message');
     if (uid === '@me') uid = req.userId;
     if (uid !== req.userId) store.requireChannelPerm(id, req.userId, P.MANAGE_MESSAGES);
     const e = parseEmoji(emoji);
@@ -630,6 +684,7 @@ export default (ctx: Ctx) => async (app: FastifyInstance) => {
   app.get('/channels/:id/messages/:mid/reactions/:emoji', { preHandler: auth }, async (req) => {
     const { id, mid, emoji } = req.params as { id: string; mid: string; emoji: string };
     channelOr404(id, req.userId);
+    if (store.messageRow(mid)?.channel_id !== id) throw notFound('Message');
     const e = parseEmoji(emoji);
     return (db.prepare('SELECT user_id FROM reactions WHERE message_id = ? AND emoji_id = ? AND emoji_name = ? ORDER BY created_at LIMIT 100').all(mid, e.id ?? '', e.name) as any[]).map(
       (r) => store.user(r.user_id),
@@ -724,7 +779,7 @@ export default (ctx: Ctx) => async (app: FastifyInstance) => {
     const { id } = req.params as { id: string };
     channelOr404(id, req.userId);
     const { recipients } = parse(z.object({ recipients: z.array(z.string()).nullable().optional() }), req.body);
-    hub.ring(id, recipients ?? null, false);
+    hub.ring(id, recipients ?? null, false, req.userId);
     return { ok: true };
   });
 

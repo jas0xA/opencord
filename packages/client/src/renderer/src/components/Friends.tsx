@@ -7,6 +7,7 @@ import { voice } from '../lib/voice';
 import { Avatar } from './Avatar';
 import { FriendsIcon, STATUS_LABEL } from './Icons';
 import { openContextMenu, Tooltip } from './Layers';
+import { userControlItems } from './UserControls';
 import { copy } from '../lib/utils';
 
 type Tab = 'online' | 'all' | 'pending' | 'blocked' | 'add';
@@ -85,7 +86,8 @@ function menu(e: React.MouseEvent, rel: Relationship) {
     },
     { separator: true },
     rel.type === RelationshipType.FRIEND && { label: 'Remove Friend', danger: true, onClick: () => api.del(`/users/@me/relationships/${rel.id}`) },
-    rel.type !== RelationshipType.BLOCKED && { label: 'Block', danger: true, onClick: () => api.put(`/users/@me/relationships/${rel.id}`, { type: 2 }) },
+    ...userControlItems(rel.id),
+    { separator: true },
     useStore.getState().me?.settings.developer_mode && { label: 'Copy User ID', onClick: () => copy(rel.id) },
   ]);
 }

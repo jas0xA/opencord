@@ -69,6 +69,8 @@ export function Tooltip({ text, side = 'top', children, wrap }: { text: ReactNod
 export type MenuItem =
   | { label: string; onClick: () => void; danger?: boolean; icon?: ReactNode; checked?: boolean; disabled?: boolean }
   | { separator: true }
+  /** Arbitrary content (e.g. a slider); clicking it doesn't close the menu. */
+  | { render: () => ReactNode }
   | null
   | false
   | undefined;
@@ -122,6 +124,8 @@ function ContextMenuView() {
       {clean.map((it, i) =>
         'separator' in it ? (
           <div key={i} className="cm-sep" />
+        ) : 'render' in it ? (
+          <div key={i} className="cm-custom">{it.render()}</div>
         ) : (
           <button
             key={i}

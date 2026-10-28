@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import {
-  ChannelType, GatewayOp, Permissions, RelationshipType, applyOverwrites, computeBasePermissions, hasPermission,
+  ChannelType, GatewayOp, MessageType, Permissions, RelationshipType, applyOverwrites, computeBasePermissions, hasPermission,
   type Channel, type GuildFull, type GuildMember, type InstanceInfo, type MarketplaceItem, type Message, type Presence,
   type PresenceStatus, type PublicUser, type ReadState, type Relationship, type Role, type SelfUser, type UserSettings,
   type VoiceState,
@@ -10,6 +10,7 @@ import { GatewayClient } from './gateway';
 import { notifyMessage } from './notify';
 import { playSound, startRinging, stopRinging } from './sounds';
 import { voice } from './voice';
+import { isMessageHidden } from './userPrefs';
 
 /* ───────────── saved accounts (persisted encrypted by the main process) ───────────── */
 
@@ -702,7 +703,7 @@ function handleDispatch(t: string, d: any) {
       const prev = s.relationships[d.id];
       cacheUsers([d.user]);
       set({ relationships: { ...s.relationships, [d.id]: d } });
-      if (d.type === RelationshipType.INCOMING && prev?.type !== RelationshipType.INCOMING) playSound('request');
+      if (d.type === RelationshipType.INCOMING && prev?.type !== RelationshipType.INCOMING && s.me?.settings.status !== 'dnd') playSound('request');
       break;
     }
     case 'RELATIONSHIP_REMOVE': {
@@ -820,7 +821,9 @@ function handleDispatch(t: string, d: any) {
         const ch = findChannel(m.channel_id);
         const isPrivate = !m.guild_id;
         const member = m.guild_id ? get().guilds[m.guild_id]?.members.find((x) => x.user.id === me?.id) : null;
-        const mentioned = isPrivate || m.mentions.includes(me?.id ?? '') || m.mention_everyone || m.mention_roles.some((r) => member?.roles.includes(r));
+        // Blocked and muted users never badge, ping or make a sound.
+        const silenced = isMessageHidden(m.author.id);
+        const mentioned = !silenced && (isPrivate || m.mentions.includes(me?.id ?? '') || m.mention_everyone || m.mention_roles.some((r) => member?.roles.includes(r)));
         if (mentioned) {
           const rs = get().readStates[m.channel_id];
           set({ readStates: { ...get().readStates, [m.channel_id]: { channel_id: m.channel_id, last_message_id: rs?.last_message_id ?? null, mention_count: (rs?.mention_count ?? 0) + 1 } } });
@@ -828,7 +831,8 @@ function handleDispatch(t: string, d: any) {
         const r = get().route;
         const viewing = document.hasFocus() && ((r.kind === 'home' && r.channelId === m.channel_id) || (r.kind === 'guild' && r.channelId === m.channel_id));
         if (viewing) ackChannel(m.channel_id);
-        else if (mentioned && ch && me?.settings.status !== 'dnd') notifyMessage(m, ch);
+        // A call's ring is its notification; its "started a call" message stays quiet.
+        else if (mentioned && ch && me?.settings.status !== 'dnd' && m.type !== MessageType.CALL) notifyMessage(m, ch);
       }
       break;
     }
@@ -882,6 +886,14 @@ function handleDispatch(t: string, d: any) {
       break;
     }
     case 'VOICE_STATE_UPDATE': {
+      // The server turned down our join (e.g. calling someone across a block).
+      if (d.refused_channel_id) {
+        if (d.user_id === s.me?.id && voice.channelId === d.refused_channel_id) {
+          voice.leave(false);
+          toast("You can't call this user.");
+        }
+        break;
+      }
       const vs = { ...s.voiceStates };
       const prev = vs[d.user_id];
       if (d.channel_id) vs[d.user_id] = d;
@@ -953,3 +965,8 @@ function stopRingingIfIdle() {
   const ringing = Object.values(s.calls).some((c) => c.ringing.includes(s.me?.id ?? ''));
   if (!ringing) stopRinging();
 }
+
+// Volume, per-user overrides and the output device can change mid-call (here or on another device).
+useStore.subscribe((st, prev) => {
+  if (st.me?.settings !== prev.me?.settings) voice.applyVolumes();
+});

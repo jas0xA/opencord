@@ -250,6 +250,12 @@ export class Hub {
     }
     if (Array.isArray(d.activities)) p.activities = d.activities.slice(0, 5);
     this.broadcastPresence(userId);
+    // Do Not Disturb silences calls that are ringing right now, too.
+    if (p.status === 'dnd') {
+      for (const call of this.calls.values()) {
+        if (call.ringing.delete(userId)) this.toUsers(this.store.recipientIds(call.channelId), 'CALL_UPDATE', { channel_id: call.channelId, ringing: [...call.ringing] });
+      }
+    }
   }
 
   /** Users who share a guild, DM or friendship with `userId`. */
@@ -351,6 +357,13 @@ export class Hub {
     if (!isPrivate && ch.type !== ChannelType.GUILD_VOICE && ch.type !== ChannelType.GUILD_STAGE) return;
     const perms = this.store.channelPermissions(channelId, userId);
     if (!hasPermission(perms, Permissions.CONNECT)) return;
+    if (ch.type === ChannelType.DM && prev?.channel_id !== channelId) {
+      const other = this.store.recipientIds(channelId).find((r) => r !== userId);
+      if (other && this.blockedEitherWay(userId, other)) {
+        this.toUsers([userId], 'VOICE_STATE_UPDATE', this.idleVoice(userId, channelId));
+        return;
+      }
+    }
 
     if (prev?.channel_id && prev.channel_id !== channelId) this.leaveVoice(userId);
 
@@ -424,7 +437,7 @@ export class Hub {
         messageId,
         startedAt: now,
         participants: new Set([userId]),
-        ringing: new Set(recipients.filter((r) => r !== userId)),
+        ringing: new Set(recipients.filter((r) => r !== userId && this.shouldRing(userId, r))),
         ringTimer: null,
       };
       this.calls.set(channelId, call);
@@ -446,13 +459,59 @@ export class Hub {
     }
   }
 
-  ring(channelId: string, userIds: string[] | null, stop: boolean) {
+  /** Starts (or stops) ringing recipients of a call. `byUserId` is who asked; rings follow `shouldRing`. */
+  ring(channelId: string, userIds: string[] | null, stop: boolean, byUserId?: string) {
     const call = this.calls.get(channelId);
     if (!call) return;
     const recipients = this.store.recipientIds(channelId);
-    const targets = userIds ?? recipients.filter((r) => !call.participants.has(r));
-    for (const t of targets) (stop ? call.ringing.delete(t) : call.ringing.add(t));
+    const targets = (userIds ?? recipients.filter((r) => !call.participants.has(r))).filter((t) => recipients.includes(t));
+    for (const t of targets) {
+      if (stop) call.ringing.delete(t);
+      else if (!call.participants.has(t) && (!byUserId || this.shouldRing(byUserId, t))) call.ringing.add(t);
+    }
     this.toUsers(recipients, 'CALL_UPDATE', { channel_id: channelId, ringing: [...call.ringing] });
+  }
+
+  /**
+   * Whether `callee` gets a ringing call popup and sound from `caller`. Anyone can still join a
+   * DM call; only friends ring, and never across a block or while the callee is in Do Not Disturb.
+   */
+  shouldRing(caller: string, callee: string) {
+    if (this.blockedEitherWay(caller, callee)) return false;
+    const friends = this.store.db.prepare('SELECT 1 FROM relationships WHERE user_id = ? AND other_id = ? AND type = 1').get(callee, caller);
+    if (!friends) return false;
+    const status = this.presences.get(callee)?.status ?? this.storedStatus(callee);
+    return status !== 'dnd';
+  }
+
+  /** After `blocker` blocks `blocked`: stop rings between them and end their 1:1 DM call. */
+  onBlock(blocker: string, blocked: string) {
+    for (const call of [...this.calls.values()]) {
+      const recipients = this.store.recipientIds(call.channelId);
+      if (!recipients.includes(blocker) || !recipients.includes(blocked)) continue;
+      const changed = call.ringing.delete(blocker) || call.ringing.delete(blocked);
+      if (changed) this.toUsers(recipients, 'CALL_UPDATE', { channel_id: call.channelId, ringing: [...call.ringing] });
+      if (this.store.channelRow(call.channelId)?.type === ChannelType.DM) {
+        if (this.voiceStates.get(blocked)?.channel_id === call.channelId) this.leaveVoice(blocked);
+        if (this.voiceStates.get(blocker)?.channel_id === call.channelId) this.leaveVoice(blocker);
+      }
+    }
+  }
+
+  blockedEitherWay(a: string, b: string) {
+    return !!this.store.db
+      .prepare('SELECT 1 FROM relationships WHERE type = 2 AND ((user_id = ? AND other_id = ?) OR (user_id = ? AND other_id = ?))')
+      .get(a, b, b, a);
+  }
+
+  private storedStatus(userId: string): PresenceStatus | null {
+    const row = this.store.userRow(userId);
+    return row ? this.store.settings(row).status : null;
+  }
+
+  /** A "not in voice" state, sent to a client whose join was refused so it stops trying. */
+  private idleVoice(userId: string, channelId: string): VoiceState {
+    return { user_id: userId, channel_id: null, guild_id: null, self_mute: false, self_deaf: false, self_video: false, self_stream: false, mute: false, deaf: false, refused_channel_id: channelId };
   }
 
   private endCall(call: CallState) {

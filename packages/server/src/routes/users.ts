@@ -1,7 +1,7 @@
 import type { FastifyInstance } from 'fastify';
 import { z } from 'zod';
 import {
-  CONNECTION_PROVIDERS, ChannelType, RelationshipType, passwordProblem, usernameProblem, type UserSettings,
+  CONNECTION_PROVIDERS, ChannelType, RelationshipType, defaultUserSettings, passwordProblem, usernameProblem, type UserSettings,
 } from '@opencord/shared';
 import { authenticate, parse, type Ctx } from '../app';
 import { ApiError, badRequest, forbidden, notFound, snowflake } from '../util';
@@ -9,6 +9,20 @@ import { checkPassword, hashPassword, usernameAvailable } from './auth';
 import { isRemote, profileOf, resolveRemote, sendToRemote } from '../federation/relay';
 
 const hex = z.string().regex(/^#[0-9a-f]{6}$/i).nullable();
+
+/** Settings that need more than a type check. */
+const settingsShapes = {
+  status: z.enum(['online', 'idle', 'dnd', 'invisible']),
+  theme: z.enum(['dark', 'light', 'ash', 'onyx', 'sync']),
+  message_display: z.enum(['cozy', 'compact']),
+  input_mode: z.enum(['vad', 'ptt']),
+  user_overrides: z
+    .record(
+      z.string().regex(/^\d{1,20}$/),
+      z.object({ volume: z.number().min(0).max(200).optional(), mute_voice: z.boolean().optional(), mute_messages: z.boolean().optional() }).strict(),
+    )
+    .refine((o) => Object.keys(o).length <= 2000, 'Too many entries'),
+};
 
 export function areFriends(ctx: Ctx, a: string, b: string) {
   return !!ctx.db.prepare('SELECT 1 FROM relationships WHERE user_id = ? AND other_id = ? AND type = 1').get(a, b);
@@ -178,17 +192,33 @@ export default (ctx: Ctx) => async (app: FastifyInstance) => {
   });
 
   app.patch('/users/@me/settings', async (req) => {
-    const patch = parse(z.record(z.unknown()), req.body) as Partial<UserSettings>;
+    const raw = parse(z.record(z.unknown()), req.body);
     const user = store.userRow(req.userId)!;
     const current = store.settings(user);
-    const next = { ...current } as Record<string, unknown>;
-    for (const [k, v] of Object.entries(patch)) if (k in current) next[k] = v;
+    const defaults = defaultUserSettings() as unknown as Record<string, unknown>;
+    // Unknown keys are ignored; known ones must keep their type (and some their exact shape).
+    const patch: Record<string, unknown> = {};
+    for (const [k, v] of Object.entries(raw)) {
+      if (!(k in defaults)) continue;
+      const strict = settingsShapes[k as keyof typeof settingsShapes];
+      if (strict) {
+        const r = strict.safeParse(v);
+        if (!r.success) throw badRequest('Invalid Form Body', { [k]: r.error.issues[0]?.message ?? 'Invalid value' });
+        patch[k] = r.data;
+        continue;
+      }
+      const d = defaults[k];
+      const ok = d === null ? v === null || typeof v === 'object' : Array.isArray(d) ? Array.isArray(v) : typeof v === typeof d && v !== null;
+      if (!ok) throw badRequest('Invalid Form Body', { [k]: `Expected ${Array.isArray(d) ? 'array' : d === null ? 'object or null' : typeof d}` });
+      patch[k] = v;
+    }
+    const next = { ...current, ...patch } as Record<string, unknown>;
     const json = JSON.stringify(next);
     if (json.length > 64 * 1024) throw badRequest('Settings too large');
     db.prepare('UPDATE users SET settings = ? WHERE id = ?').run(json, req.userId);
-    hub.toUsers([req.userId], 'USER_SETTINGS_UPDATE', patch);
+    hub.toUsers([req.userId], 'USER_SETTINGS_UPDATE', patch as Partial<UserSettings>);
     if ('custom_status' in patch || 'show_activity' in patch) hub.broadcastPresence(req.userId);
-    if ('status' in patch && patch.status) hub.updatePresence(req.userId, { status: patch.status });
+    if (typeof patch.status === 'string') hub.updatePresence(req.userId, { status: patch.status as UserSettings['status'] });
     return next;
   });
 
@@ -353,6 +383,7 @@ export default (ctx: Ctx) => async (app: FastifyInstance) => {
       if (wasLinked && isRemote(store.userRow(id) as any)) sendToRemote(ctx, id, { type: 'friend_remove', from: profileOf(ctx, req.userId) });
       emitRel(req.userId, id);
       emitRel(id, req.userId);
+      hub.onBlock(req.userId, id);
       return { ok: true };
     }
     sendFriendRequest(req.userId, id);

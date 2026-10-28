@@ -7,7 +7,8 @@ import { publishGuild } from './discovery';
 import { authenticate, parse, type Ctx } from '../app';
 import { ApiError, badRequest, forbidden, json, notFound, snowflake } from '../util';
 
-const overwriteSchema = z.object({ id: z.string(), type: z.union([z.literal(0), z.literal(1)]), allow: z.string(), deny: z.string() });
+const bits = z.string().regex(/^\d{1,20}$/, 'Must be a number');
+const overwriteSchema = z.object({ id: z.string(), type: z.union([z.literal(0), z.literal(1)]), allow: bits, deny: bits });
 export const channelCreateSchema = z.object({
   name: z.string().min(1).max(100),
   type: z.number().int().default(0),
@@ -237,6 +238,16 @@ export default (ctx: Ctx) => async (app: FastifyInstance) => {
     const body = parse(channelCreateSchema, req.body);
     const allowed: number[] = [ChannelType.GUILD_TEXT, ChannelType.GUILD_VOICE, ChannelType.GUILD_CATEGORY, ChannelType.GUILD_ANNOUNCEMENT, ChannelType.GUILD_STAGE, ChannelType.GUILD_FORUM];
     if (!allowed.includes(body.type)) throw badRequest('Invalid channel type');
+    // Explicit overwrites need Manage Roles, and only grant/deny permissions you have.
+    if (body.permission_overwrites?.length) {
+      store.requireGuildPerm(id, req.userId, P.MANAGE_ROLES);
+      const mine = store.guildPermissions(id, req.userId);
+      if (mine !== ALL_PERMISSIONS) {
+        for (const o of body.permission_overwrites) {
+          if ((BigInt(o.allow) | BigInt(o.deny)) & ~mine) throw forbidden("You can't set permissions you don't have yourself.");
+        }
+      }
+    }
     if (body.parent_id) {
       const parent = store.channelRow(body.parent_id);
       if (!parent || parent.guild_id !== id || parent.type !== ChannelType.GUILD_CATEGORY) throw badRequest('Invalid parent');
@@ -254,6 +265,14 @@ export default (ctx: Ctx) => async (app: FastifyInstance) => {
     guildOr404(id, req.userId);
     store.requireGuildPerm(id, req.userId, P.MANAGE_CHANNELS);
     const body = parse(z.array(z.object({ id: z.string(), position: z.number().int(), parent_id: z.string().nullable().optional() })).max(500), req.body);
+    for (const c of body) {
+      if (!c.parent_id) continue;
+      const parent = store.channelRow(c.parent_id);
+      const self = store.channelRow(c.id);
+      if (!parent || parent.guild_id !== id || parent.type !== ChannelType.GUILD_CATEGORY || c.parent_id === c.id || self?.type === ChannelType.GUILD_CATEGORY) {
+        throw badRequest('Invalid category');
+      }
+    }
     const upd = db.prepare('UPDATE channels SET position = ?, parent_id = COALESCE(?, parent_id) WHERE id = ? AND guild_id = ?');
     const clearParent = db.prepare('UPDATE channels SET parent_id = NULL WHERE id = ? AND guild_id = ?');
     db.transaction(() => {
