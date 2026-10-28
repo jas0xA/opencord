@@ -146,10 +146,10 @@ export default (ctx: Ctx) => async (app: FastifyInstance) => {
       req.body,
     );
     if (row.origin) throw forbidden('Imported items are managed by their home server');
+    if (body.global && !ctx.federation) throw badRequest('This server is not part of the global OpenCord network.');
     if (body.visibility) db.prepare('UPDATE marketplace_items SET visibility = ? WHERE id = ?').run(body.visibility, id);
     if (body.allow_copy !== undefined) db.prepare('UPDATE marketplace_items SET allow_copy = ? WHERE id = ?').run(+body.allow_copy, id);
     if (body.global !== undefined) {
-      if (body.global && !ctx.federation) throw badRequest('This server is not part of the global OpenCord network.');
       db.prepare('UPDATE marketplace_items SET global = ? WHERE id = ?').run(+body.global, id);
     }
     if (itemRow(id).visibility === 'private') db.prepare('UPDATE marketplace_items SET global = 0 WHERE id = ?').run(id);

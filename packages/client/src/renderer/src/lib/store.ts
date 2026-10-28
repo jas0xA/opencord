@@ -720,6 +720,8 @@ function handleDispatch(t: string, d: any) {
       updateChannel(d);
       break;
     case 'CHANNEL_DELETE': {
+      // The server already dropped us from it; stop our side of the call too.
+      if (voice.channelId === d.id) voice.leave();
       if (d.guild_id) updateGuild(d.guild_id, (g) => ({ ...g, channels: g.channels.filter((c) => c.id !== d.id) }));
       else {
         const pc = { ...s.privateChannels };
@@ -758,6 +760,8 @@ function handleDispatch(t: string, d: any) {
       updateGuild(d.id, (g) => ({ ...g, ...d }));
       break;
     case 'GUILD_DELETE': {
+      // Kicked, banned, left or deleted: we're no longer in its voice channels either.
+      if (voice.guildId === d.id) voice.leave();
       const guilds = { ...s.guilds };
       delete guilds[d.id];
       set({ guilds, guildOrder: s.guildOrder.filter((x) => x !== d.id) });
@@ -777,7 +781,11 @@ function handleDispatch(t: string, d: any) {
       break;
     }
     case 'GUILD_MEMBER_REMOVE':
-      updateGuild(d.guild_id, (g) => ({ ...g, members: g.members.filter((x) => x.user.id !== d.user.id), member_count: g.member_count - 1 }));
+      updateGuild(d.guild_id, (g) =>
+        g.members.some((x) => x.user.id === d.user.id)
+          ? { ...g, members: g.members.filter((x) => x.user.id !== d.user.id), member_count: g.member_count - 1 }
+          : g,
+      );
       break;
     case 'GUILD_ROLE_CREATE':
     case 'GUILD_ROLE_UPDATE':

@@ -18,7 +18,7 @@ export function resolveInvite(ctx: Ctx, code: string): any | null {
   }
   // Vanity URLs act as a never-expiring invite to the first text channel.
   const g = ctx.db.prepare('SELECT * FROM guilds WHERE vanity_code = ?').get(code) as any;
-  if (!g) return null;
+  if (!g || json(g.features).includes('INVITES_DISABLED')) return null;
   const ch = ctx.db.prepare('SELECT id FROM channels WHERE guild_id = ? AND type = 0 ORDER BY position LIMIT 1').get(g.id) as any;
   return { code, guild_id: g.id, channel_id: ch?.id ?? g.id, inviter_id: null, uses: 0, max_uses: 0, max_age: 0, temporary: 0, created_at: g.created_at, vanity: true };
 }

@@ -154,12 +154,15 @@ function MessageList({ channel }: { channel: Channel }) {
     );
     run = null;
   };
+  // The day of the last message passed (shown or collapsed), separate from `prev`, which only drives grouping.
+  let lastDay: number | null = null;
   for (const m of list) {
-    if (!prev || !isSameDay(prev.created_at, m.created_at)) {
+    if (lastDay === null || !isSameDay(lastDay, m.created_at)) {
       closeRun();
       items.push(<div key={`d-${m.id}`} className="day-divider"><span>{formatDay(m.created_at)}</span></div>);
       prev = null;
     }
+    lastDay = m.created_at;
     if (hidden(m)) {
       if (!run) {
         run = { key: m.id, slot: items.length, count: 0, blocked: false };

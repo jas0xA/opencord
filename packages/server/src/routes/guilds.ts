@@ -375,6 +375,11 @@ export default (ctx: Ctx) => async (app: FastifyInstance) => {
     if (body.channel_id !== undefined) {
       const vs = hub.voiceStates.get(uid);
       if (!self && !hasPermission(perms, P.MOVE_MEMBERS)) throw forbidden();
+      if (body.channel_id !== null) {
+        const dest = store.channelRow(body.channel_id);
+        if (!dest || dest.guild_id !== id || (dest.type !== ChannelType.GUILD_VOICE && dest.type !== ChannelType.GUILD_STAGE)) throw badRequest('Invalid voice channel');
+        if (!hasPermission(store.channelPermissions(dest.id, req.userId), P.CONNECT)) throw forbidden();
+      }
       if (vs?.guild_id === id) {
         if (body.channel_id === null) hub.leaveVoice(uid);
         else hub.updateVoiceState(uid, { channel_id: body.channel_id });

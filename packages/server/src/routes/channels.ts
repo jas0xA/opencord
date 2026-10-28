@@ -731,7 +731,8 @@ export default (ctx: Ctx) => async (app: FastifyInstance) => {
     const row = channelOr404(id, req.userId);
     store.requireChannelPerm(id, req.userId, P.SEND_MESSAGES);
     const payload = { channel_id: id, user_id: req.userId, guild_id: row.guild_id, timestamp: Date.now() };
-    hub.toUsers(hub.channelViewers(id).filter((u) => u !== req.userId), 'TYPING_START', payload);
+    // Nobody sees you typing across a block.
+    hub.toUsers(hub.channelViewers(id).filter((u) => u !== req.userId && !hub.blockedEitherWay(u, req.userId)), 'TYPING_START', payload);
     return { ok: true };
   });
 

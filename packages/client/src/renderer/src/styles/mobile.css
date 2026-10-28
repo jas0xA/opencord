@@ -226,7 +226,8 @@
   .attachment-file,
   .invite-card,
   .embed,
-  .attachment-img,
+  .attachment-image,
+  .attachment-audio,
   .attachment-video {
     max-width: 100% !important;
   }

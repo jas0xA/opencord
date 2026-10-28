@@ -40,11 +40,15 @@ export default (ctx: Ctx) => async (app: FastifyInstance) => {
     };
   }
 
-  function publish(id: string) {
+  /** Publishes a global theme to the network, or withdraws it when it stopped being global. */
+  function publish(id: string, wasGlobal = false) {
     const fed = ctx.federation;
     if (!fed) return;
     const t = row(id);
-    if (!t || t.visibility !== 'global') return fed.publish('theme', id, {}, true);
+    if (!t || t.visibility !== 'global') {
+      if (wasGlobal) fed.publish('theme', id, {}, true);
+      return;
+    }
     const author = t.author_id ? store.userRow(t.author_id) : null;
     fed.publish('theme', id, {
       id, name: t.name, description: t.description, allow_copy: !!t.allow_copy, has_js: !!t.js.trim(),
@@ -118,7 +122,7 @@ export default (ctx: Ctx) => async (app: FastifyInstance) => {
     db.prepare('UPDATE themes SET name = ?, description = ?, css = ?, js = ?, visibility = ?, allow_copy = ?, updated_at = ? WHERE id = ?').run(
       String(next.name).trim(), String(next.description).trim(), next.css, next.js, next.visibility, +!!next.allow_copy, Date.now(), t.id,
     );
-    publish(t.id);
+    publish(t.id, t.visibility === 'global');
     return serialize(row(t.id), req.userId, true);
   });
 

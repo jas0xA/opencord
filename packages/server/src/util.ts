@@ -53,3 +53,28 @@ export function json<T>(s: string | null | undefined, fallback: T): T {
     return fallback;
   }
 }
+
+/**
+ * Counts attempts per key in a sliding window; `hit` throws a 429 once `max` is exceeded.
+ * In memory, so limits reset on restart (fine for slowing down guessing and spam).
+ */
+export function rateLimiter(max: number, windowMs: number, message = 'Too many attempts. Try again in a few minutes.') {
+  const hits = new Map<string, number[]>();
+  const sweep = setInterval(() => {
+    const now = Date.now();
+    for (const [k, t] of hits) if (!t.some((x) => now - x < windowMs)) hits.delete(k);
+  }, windowMs);
+  sweep.unref?.();
+  return {
+    hit(key: string) {
+      const now = Date.now();
+      const t = (hits.get(key) ?? []).filter((x) => now - x < windowMs);
+      t.push(now);
+      hits.set(key, t);
+      if (t.length > max) throw new ApiError(429, message, 0);
+    },
+    reset(key: string) {
+      hits.delete(key);
+    },
+  };
+}

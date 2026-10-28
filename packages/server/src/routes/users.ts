@@ -291,7 +291,7 @@ export default (ctx: Ctx) => async (app: FastifyInstance) => {
       connections,
       mutual_guilds: id === req.userId ? [] : mutualGuilds,
       mutual_friends: id === req.userId ? [] : mutualFriends,
-      guild_member: guild_id && id ? store.member(guild_id, id) : null,
+      guild_member: guild_id && store.isMember(guild_id, req.userId) ? store.member(guild_id, id) : null,
     };
   });
 

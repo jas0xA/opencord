@@ -4,7 +4,7 @@ import * as OTPAuth from 'otpauth';
 import { z } from 'zod';
 import { defaultUserSettings, passwordProblem, usernameProblem, type InstanceInfo } from '@opencord/shared';
 import { VERSION, androidApkPath, authenticate, parse, type Ctx } from '../app';
-import { ApiError, badRequest, randomToken, sha256, snowflake } from '../util';
+import { ApiError, badRequest, randomToken, rateLimiter, sha256, snowflake } from '../util';
 import { joinGuild, resolveInvite } from './invites';
 
 export function verifyTotp(secret: string, code: string): boolean {
@@ -151,9 +151,17 @@ export default (ctx: Ctx) => async (app: FastifyInstance) => {
     return reply.type('text/html').send('<p>Email verified! You can now log in from the OpenCord app.</p>');
   });
 
+  // Slow down password and two-factor guessing: per address, and per account name.
+  const loginByIp = rateLimiter(100, 10 * 60_000); // generous: users behind one proxy can share an address
+  const loginByName = rateLimiter(10, 10 * 60_000);
+  const mfaByUser = rateLimiter(8, 10 * 60_000);
+  const forgotByEmail = rateLimiter(3, 60 * 60_000, 'A reset email was sent recently. Check your inbox or try again later.');
+
   app.post('/auth/login', async (req) => {
     const body = parse(z.object({ login: z.string().min(1).max(254), password: z.string().min(1).max(128), code: z.string().max(12).optional(), account_id: z.string().max(32).optional() }), req.body);
     const login = body.login.trim().toLowerCase();
+    loginByIp.hit(req.ip);
+    loginByName.hit(login);
     const invalid = new ApiError(400, 'Login or password is invalid.', 50035, { login: 'Login or password is invalid.', password: 'Login or password is invalid.' });
     // An email can own several accounts: log into the one whose password matches. If more than one
     // does, the user has to pick by username (or `account_id` from the returned list).
@@ -171,8 +179,11 @@ export default (ctx: Ctx) => async (app: FastifyInstance) => {
     if (!user.email_verified) throw new ApiError(403, 'Please verify your email address first.', 40004);
     if (user.mfa_secret) {
       if (!body.code) return { mfa: true, account_id: user.id };
+      mfaByUser.hit(user.id);
       if (!verifyTotp(user.mfa_secret, body.code)) throw badRequest('Invalid two-factor code', { code: 'Invalid two-factor code' });
+      mfaByUser.reset(user.id);
     }
+    loginByName.reset(login);
     return { token: createSession(ctx, user.id, req.headers['user-agent'] ?? '', req.ip) };
   });
 
@@ -183,6 +194,7 @@ export default (ctx: Ctx) => async (app: FastifyInstance) => {
 
   app.post('/auth/forgot', async (req) => {
     const { email } = parse(z.object({ email: z.string().email() }), req.body);
+    forgotByEmail.hit(email.toLowerCase());
     const users = db.prepare('SELECT id, username FROM users WHERE email = ?').all(email.toLowerCase()) as any[];
     if (users.length && ctx.mailer.enabled) {
       const lines: string[] = [];
@@ -265,6 +277,7 @@ export default (ctx: Ctx) => async (app: FastifyInstance) => {
   app.post('/users/@me/mfa/totp/disable', { preHandler: auth }, async (req) => {
     const { code } = parse(z.object({ code: z.string() }), req.body);
     const user = ctx.store.userRow(req.userId)!;
+    mfaByUser.hit(req.userId);
     if (!user.mfa_secret || !verifyTotp(user.mfa_secret, code)) throw badRequest('Invalid code', { code: 'Invalid two-factor code' });
     db.prepare('UPDATE users SET mfa_secret = NULL WHERE id = ?').run(req.userId);
     ctx.hub.broadcastUserUpdate(req.userId);

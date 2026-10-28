@@ -115,6 +115,7 @@ export class Hub {
   }
 
   private identify(session: Session, token: unknown) {
+    if (session.userId) return; // already identified; a second IDENTIFY must not switch accounts
     if (typeof token !== 'string') return session.ws.close(4004, 'Authentication failed');
     const row = this.store.db
       .prepare('SELECT s.user_id FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.token_hash = ? AND u.disabled = 0')
